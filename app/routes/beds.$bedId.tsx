@@ -4,10 +4,17 @@ import type {
   MetaFunction,
 } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { Form, Link, useLoaderData, useNavigation } from "@remix-run/react";
+import {
+  Form,
+  Link,
+  useActionData,
+  useLoaderData,
+  useNavigation,
+} from "@remix-run/react";
 import invariant from "tiny-invariant";
 
-import { getBed } from "~/models/bed.server";
+import { sendBedToBedster } from "~/lib/bedster.server";
+import { claimBed, getBed, markBedSent } from "~/models/bed.server";
 import { generatePiecesForBed, piecesForBed } from "~/models/piece.server";
 import { requireStaff } from "~/session.server";
 
@@ -27,25 +34,67 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   return json({ bed, pieces });
 };
 
+function callbackUrl(request: Request): string {
+  const host =
+    request.headers.get("X-Forwarded-Host") ??
+    request.headers.get("host") ??
+    "localhost:3000";
+  const proto =
+    request.headers.get("X-Forwarded-Proto") ??
+    (host.includes("localhost") ? "http" : "https");
+  return `${proto}://${host}/webhooks/bedster`;
+}
+
 export const action = async ({ request, params }: ActionFunctionArgs) => {
-  await requireStaff(request);
+  const staff = await requireStaff(request);
   invariant(params.bedId, "bedId is required");
 
   const formData = await request.formData();
-  if (formData.get("intent") === "prepare") {
+  const intent = formData.get("intent");
+
+  if (intent === "prepare") {
     await generatePiecesForBed(params.bedId);
+    return json({ ok: true });
   }
+
+  if (intent === "send") {
+    const bed = await getBed(params.bedId);
+    if (!bed) throw new Response("Bed not found", { status: 404 });
+    try {
+      await sendBedToBedster(bed, callbackUrl(request));
+      await markBedSent(bed.id);
+      return json({ ok: true });
+    } catch (error) {
+      return json(
+        { ok: false, error: error instanceof Error ? error.message : "Send failed" },
+        { status: 400 },
+      );
+    }
+  }
+
+  if (intent === "claim") {
+    await claimBed(params.bedId, staff.id, staff.name);
+    return json({ ok: true });
+  }
+
   return json({ ok: true });
 };
 
 export default function BedDetail() {
   const { bed, pieces } = useLoaderData<typeof loader>();
+  const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const totalPieces = bed.items.reduce((sum, item) => sum + item.quantity, 0);
   const prepared = pieces.length > 0;
-  const preparing =
-    navigation.state !== "idle" &&
-    navigation.formData?.get("intent") === "prepare";
+  const pendingIntent =
+    navigation.state !== "idle"
+      ? navigation.formData?.get("intent")
+      : undefined;
+  const busy = navigation.state !== "idle";
+  const busyPrepare = pendingIntent === "prepare";
+  const busySend = pendingIntent === "send";
+  const busyClaim = pendingIntent === "claim";
+  const sendError = (actionData as { error?: string } | undefined)?.error;
 
   return (
     <div className="min-h-full bg-gray-50">
@@ -62,22 +111,65 @@ export default function BedDetail() {
           </span>
         </div>
         <div className="flex items-center gap-3">
+          {bed.status === "open" ? (
+            <Form method="post">
+              <input type="hidden" name="intent" value="send" />
+              <button
+                type="submit"
+                disabled={busy}
+                className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-300"
+              >
+                {busySend ? "Sending…" : "Send to Bedster"}
+              </button>
+            </Form>
+          ) : null}
+
+          {bed.status === "sent_to_bedster" ? (
+            <span className="rounded bg-amber-100 px-3 py-2 text-sm font-medium text-amber-800">
+              Awaiting imposition…
+            </span>
+          ) : null}
+
+          {bed.status === "imposed" ? (
+            <Form method="post">
+              <input type="hidden" name="intent" value="claim" />
+              <button
+                type="submit"
+                disabled={busy}
+                className="rounded bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:bg-gray-300"
+              >
+                {busyClaim ? "Claiming…" : "Claim to print"}
+              </button>
+            </Form>
+          ) : null}
+
+          {bed.bedsterUrl && (bed.status === "imposed" || bed.status === "printing") ? (
+            <a
+              href={bed.bedsterUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Print file
+            </a>
+          ) : null}
+
           {prepared ? (
             <a
               href={`/beds/${bed.id}/manifest`}
-              className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              className="rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
-              Download manifest (PDF)
+              Manifest (PDF)
             </a>
           ) : (
             <Form method="post">
               <input type="hidden" name="intent" value="prepare" />
               <button
                 type="submit"
-                disabled={preparing}
+                disabled={busy}
                 className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-300"
               >
-                {preparing ? "Preparing…" : "Prepare pieces for print"}
+                {busyPrepare ? "Preparing…" : "Prepare pieces"}
               </button>
             </Form>
           )}
@@ -85,6 +177,12 @@ export default function BedDetail() {
       </header>
 
       <main className="mx-auto max-w-4xl space-y-6 px-6 py-8">
+        {sendError ? (
+          <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {sendError}
+          </div>
+        ) : null}
+
         <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
           <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
             <div>

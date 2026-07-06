@@ -10,19 +10,33 @@ import {
   BedCreationError,
   createBedFromJobs,
   groupPendingJobs,
-  listBeds,
+  listActiveBeds,
 } from "~/models/bed.server";
 import { requireStaff } from "~/session.server";
 
 export const meta: MetaFunction = () => [{ title: "Beds — Print Station" }];
 
+const STATUS_LABEL: Record<string, string> = {
+  open: "Open",
+  sent_to_bedster: "At Bedster",
+  imposed: "Ready to claim",
+  printing: "Printing",
+};
+
+const STATUS_STYLE: Record<string, string> = {
+  open: "bg-gray-100 text-gray-600",
+  sent_to_bedster: "bg-amber-100 text-amber-800",
+  imposed: "bg-green-100 text-green-800",
+  printing: "bg-blue-100 text-blue-800",
+};
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   await requireStaff(request);
-  const [groups, openBeds] = await Promise.all([
+  const [groups, queue] = await Promise.all([
     groupPendingJobs(),
-    listBeds("open"),
+    listActiveBeds(),
   ]);
-  return json({ groups, openBeds });
+  return json({ groups, queue });
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -50,7 +64,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function BedsIndex() {
-  const { groups, openBeds } = useLoaderData<typeof loader>();
+  const { groups, queue } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
   return (
@@ -153,11 +167,11 @@ export default function BedsIndex() {
           <h2 className="mb-3 text-lg font-semibold text-gray-900">
             Bed queue
           </h2>
-          {openBeds.length === 0 ? (
+          {queue.length === 0 ? (
             <p className="text-gray-500">No beds in the queue.</p>
           ) : (
             <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white">
-              {openBeds.map((bed) => (
+              {queue.map((bed) => (
                 <li
                   key={bed.id}
                   className="flex items-center justify-between px-4 py-3"
@@ -167,26 +181,18 @@ export default function BedsIndex() {
                       {bed.workOrderNum}
                     </span>
                     <span className="ml-2 text-gray-500">{bed.label}</span>
-                    <span className="ml-2 text-sm text-gray-400">
-                      · {bed._count.items} item
-                      {bed._count.items === 1 ? "" : "s"}
+                    <span
+                      className={`ml-2 rounded px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[bed.status] ?? "bg-gray-100 text-gray-600"}`}
+                    >
+                      {STATUS_LABEL[bed.status] ?? bed.status}
                     </span>
                   </Link>
-                  {bed._count.pieces > 0 ? (
-                    <a
-                      href={`/beds/${bed.id}/manifest`}
-                      className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
-                    >
-                      Download
-                    </a>
-                  ) : (
-                    <Link
-                      to={`/beds/${bed.id}`}
-                      className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50"
-                    >
-                      Prepare
-                    </Link>
-                  )}
+                  <Link
+                    to={`/beds/${bed.id}`}
+                    className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50"
+                  >
+                    Open
+                  </Link>
                 </li>
               ))}
             </ul>

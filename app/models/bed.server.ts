@@ -188,4 +188,77 @@ export async function getBed(id: string) {
   });
 }
 
+/** Beds still moving through the pipeline (not printed or canceled). */
+export async function listActiveBeds() {
+  return prisma.bed.findMany({
+    where: { status: { in: ["open", "sent_to_bedster", "imposed", "printing"] } },
+    orderBy: { createdAt: "desc" },
+    include: { _count: { select: { items: true, pieces: true } } },
+  });
+}
+
+export async function getBedByWorkOrder(workOrderNum: string) {
+  return prisma.bed.findUnique({
+    where: { workOrderNum },
+    include: { items: { include: { job: true } } },
+  });
+}
+
+/** Mark a bed as submitted to Bedster for imposition. */
+export async function markBedSent(bedId: string): Promise<Bed> {
+  return prisma.bed.update({
+    where: { id: bedId },
+    data: { status: "sent_to_bedster", sentAt: new Date() },
+  });
+}
+
+/**
+ * Record Bedster's imposition callback: store the finished print-file URL
+ * and move the bed into the queue as `imposed`. A non-"imposed" status
+ * (e.g. "failed") is stored as-is for manual attention.
+ */
+export async function markBedImposed(
+  workOrderNum: string,
+  printFileUrl: string | undefined,
+  status: string,
+): Promise<Bed | null> {
+  const bed = await prisma.bed.findUnique({ where: { workOrderNum } });
+  if (!bed) return null;
+
+  return prisma.bed.update({
+    where: { id: bed.id },
+    data: {
+      status: status === "imposed" ? "imposed" : status,
+      bedsterUrl: printFileUrl ?? bed.bedsterUrl,
+      imposedAt: status === "imposed" ? new Date() : bed.imposedAt,
+    },
+  });
+}
+
+/**
+ * An operator claims an imposed bed to print it. Moves it to `printing`
+ * and logs who claimed it via a job event on each item.
+ */
+export async function claimBed(
+  bedId: string,
+  staffId: string,
+  staffName: string,
+): Promise<Bed> {
+  return prisma.$transaction(async (tx) => {
+    const items = await tx.bedItem.findMany({ where: { bedId } });
+    await tx.printJobEvent.createMany({
+      data: items.map((item) => ({
+        jobId: item.jobId,
+        staffId,
+        action: "claimed",
+        note: `Claimed for printing by ${staffName}`,
+      })),
+    });
+    return tx.bed.update({
+      where: { id: bedId },
+      data: { status: "printing" },
+    });
+  });
+}
+
 export type StaffRef = Pick<Staff, "id" | "name">;
