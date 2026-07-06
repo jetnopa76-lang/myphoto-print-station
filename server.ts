@@ -105,7 +105,13 @@ async function run() {
     console.log(`✅ app ready: http://localhost:${port}`);
 
     if (process.env.NODE_ENV === "development") {
-      broadcastDevReady(initialBuild);
+      // Non-fatal: a failed hot-reload ping shouldn't crash the server.
+      broadcastDevReady(initialBuild).catch((error) => {
+        console.warn(
+          "broadcastDevReady failed (hot reload may be unavailable):",
+          error,
+        );
+      });
     }
   });
 
@@ -140,7 +146,11 @@ async function run() {
       // 1. re-import the server build
       build = await reimportServer();
       // 2. tell Remix that this app server is now up-to-date and ready
-      broadcastDevReady(build);
+      try {
+        await broadcastDevReady(build);
+      } catch (error) {
+        console.warn("broadcastDevReady failed on update:", error);
+      }
     }
     const chokidar = await import("chokidar");
     chokidar
