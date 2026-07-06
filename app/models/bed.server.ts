@@ -174,7 +174,7 @@ export async function listBeds(status?: string) {
   return prisma.bed.findMany({
     where: status ? { status } : undefined,
     orderBy: { createdAt: "desc" },
-    include: { _count: { select: { items: true } } },
+    include: { _count: { select: { items: true, pieces: true } } },
   });
 }
 

@@ -150,28 +150,43 @@ export default function BedsIndex() {
         </section>
 
         <section>
-          <h2 className="mb-3 text-lg font-semibold text-gray-900">Open beds</h2>
+          <h2 className="mb-3 text-lg font-semibold text-gray-900">
+            Bed queue
+          </h2>
           {openBeds.length === 0 ? (
-            <p className="text-gray-500">No open beds.</p>
+            <p className="text-gray-500">No beds in the queue.</p>
           ) : (
             <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white">
               {openBeds.map((bed) => (
-                <li key={bed.id}>
-                  <Link
-                    to={`/beds/${bed.id}`}
-                    className="flex items-center justify-between px-4 py-3 hover:bg-gray-50"
-                  >
-                    <span>
-                      <span className="font-medium text-gray-900">
-                        {bed.workOrderNum}
-                      </span>
-                      <span className="ml-2 text-gray-500">{bed.label}</span>
+                <li
+                  key={bed.id}
+                  className="flex items-center justify-between px-4 py-3"
+                >
+                  <Link to={`/beds/${bed.id}`} className="hover:underline">
+                    <span className="font-medium text-gray-900">
+                      {bed.workOrderNum}
                     </span>
-                    <span className="text-sm text-gray-400">
-                      {bed._count.items} item
+                    <span className="ml-2 text-gray-500">{bed.label}</span>
+                    <span className="ml-2 text-sm text-gray-400">
+                      · {bed._count.items} item
                       {bed._count.items === 1 ? "" : "s"}
                     </span>
                   </Link>
+                  {bed._count.pieces > 0 ? (
+                    <a
+                      href={`/beds/${bed.id}/manifest`}
+                      className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+                    >
+                      Download
+                    </a>
+                  ) : (
+                    <Link
+                      to={`/beds/${bed.id}`}
+                      className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50"
+                    >
+                      Prepare
+                    </Link>
+                  )}
                 </li>
               ))}
             </ul>

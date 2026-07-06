@@ -1,9 +1,14 @@
-import type { LoaderFunctionArgs, MetaFunction } from "@remix-run/node";
+import type {
+  ActionFunctionArgs,
+  LoaderFunctionArgs,
+  MetaFunction,
+} from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { Link, useLoaderData } from "@remix-run/react";
+import { Form, Link, useLoaderData, useNavigation } from "@remix-run/react";
 import invariant from "tiny-invariant";
 
 import { getBed } from "~/models/bed.server";
+import { generatePiecesForBed, piecesForBed } from "~/models/piece.server";
 import { requireStaff } from "~/session.server";
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => [
@@ -18,12 +23,29 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   if (!bed) {
     throw new Response("Bed not found", { status: 404 });
   }
-  return json({ bed });
+  const pieces = await piecesForBed(bed.id);
+  return json({ bed, pieces });
+};
+
+export const action = async ({ request, params }: ActionFunctionArgs) => {
+  await requireStaff(request);
+  invariant(params.bedId, "bedId is required");
+
+  const formData = await request.formData();
+  if (formData.get("intent") === "prepare") {
+    await generatePiecesForBed(params.bedId);
+  }
+  return json({ ok: true });
 };
 
 export default function BedDetail() {
-  const { bed } = useLoaderData<typeof loader>();
+  const { bed, pieces } = useLoaderData<typeof loader>();
+  const navigation = useNavigation();
   const totalPieces = bed.items.reduce((sum, item) => sum + item.quantity, 0);
+  const prepared = pieces.length > 0;
+  const preparing =
+    navigation.state !== "idle" &&
+    navigation.formData?.get("intent") === "prepare";
 
   return (
     <div className="min-h-full bg-gray-50">
@@ -38,6 +60,27 @@ export default function BedDetail() {
           <span className="rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600">
             {bed.status}
           </span>
+        </div>
+        <div className="flex items-center gap-3">
+          {prepared ? (
+            <a
+              href={`/beds/${bed.id}/manifest`}
+              className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              Download manifest (PDF)
+            </a>
+          ) : (
+            <Form method="post">
+              <input type="hidden" name="intent" value="prepare" />
+              <button
+                type="submit"
+                disabled={preparing}
+                className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-300"
+              >
+                {preparing ? "Preparing…" : "Prepare pieces for print"}
+              </button>
+            </Form>
+          )}
         </div>
       </header>
 
@@ -91,6 +134,30 @@ export default function BedDetail() {
             ))}
           </ul>
         </section>
+
+        {prepared ? (
+          <section>
+            <h2 className="mb-3 text-lg font-semibold text-gray-900">
+              Pieces ({pieces.length})
+            </h2>
+            <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white">
+              {pieces.map((piece) => (
+                <li
+                  key={piece.id}
+                  className="flex items-center justify-between px-4 py-3 text-sm"
+                >
+                  <span className="font-mono text-gray-700">
+                    {piece.qrCode}
+                  </span>
+                  <span className="text-gray-500">
+                    {piece.job.orderName} · piece {piece.pieceIndex} of{" "}
+                    {piece.job.quantity}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
       </main>
     </div>
   );
