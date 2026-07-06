@@ -1,7 +1,7 @@
 import { useMatches } from "@remix-run/react";
 import { useMemo } from "react";
 
-import type { User } from "~/models/user.server";
+import type { Staff } from "@prisma/client";
 
 const DEFAULT_REDIRECT = "/";
 
@@ -19,11 +19,9 @@ export function safeRedirect(
   if (!to || typeof to !== "string") {
     return defaultRedirect;
   }
-
   if (!to.startsWith("/") || to.startsWith("//")) {
     return defaultRedirect;
   }
-
   return to;
 }
 
@@ -44,33 +42,33 @@ export function useMatchesData(
   return route?.data as Record<string, unknown>;
 }
 
-function isUser(user: unknown): user is User {
+function isStaff(staff: unknown): staff is Staff {
   return (
-    user != null &&
-    typeof user === "object" &&
-    "email" in user &&
-    typeof user.email === "string"
+    staff != null &&
+    typeof staff === "object" &&
+    "name" in staff &&
+    typeof staff.name === "string"
   );
 }
 
-export function useOptionalUser(): User | undefined {
+export function useOptionalStaff(): Staff | undefined {
   const data = useMatchesData("root");
-  if (!data || !isUser(data.user)) {
+  if (!data || !isStaff(data.staff)) {
     return undefined;
   }
-  return data.user;
+  return data.staff;
 }
 
-export function useUser(): User {
-  const maybeUser = useOptionalUser();
-  if (!maybeUser) {
+export function useStaff(): Staff {
+  const maybeStaff = useOptionalStaff();
+  if (!maybeStaff) {
     throw new Error(
-      "No user found in root loader, but user is required by useUser. If user is optional, try useOptionalUser instead.",
+      "No staff found in root loader, but staff is required by useStaff. If staff is optional, try useOptionalStaff instead.",
     );
   }
-  return maybeUser;
+  return maybeStaff;
 }
 
-export function validateEmail(email: unknown): email is string {
-  return typeof email === "string" && email.length > 3 && email.includes("@");
+export function validatePin(pin: unknown): pin is string {
+  return typeof pin === "string" && pin.length >= 4 && /^\d+$/.test(pin);
 }

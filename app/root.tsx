@@ -10,7 +10,7 @@ import {
   ScrollRestoration,
 } from "@remix-run/react";
 
-import { getUser } from "~/session.server";
+import { getStaff } from "~/session.server";
 import stylesheet from "~/tailwind.css";
 
 export const links: LinksFunction = () => [
@@ -19,7 +19,7 @@ export const links: LinksFunction = () => [
 ];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  return json({ user: await getUser(request) });
+  return json({ staff: await getStaff(request) });
 };
 
 export default function App() {

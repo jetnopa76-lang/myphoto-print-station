@@ -1,8 +1,8 @@
 import { createCookieSessionStorage, redirect } from "@remix-run/node";
 import invariant from "tiny-invariant";
 
-import type { User } from "~/models/user.server";
-import { getUserById } from "~/models/user.server";
+import type { Staff } from "@prisma/client";
+import { prisma } from "~/db.server";
 
 invariant(process.env.SESSION_SECRET, "SESSION_SECRET must be set");
 
@@ -17,71 +17,51 @@ export const sessionStorage = createCookieSessionStorage({
   },
 });
 
-const USER_SESSION_KEY = "userId";
+const STAFF_SESSION_KEY = "staffId";
 
 export async function getSession(request: Request) {
   const cookie = request.headers.get("Cookie");
   return sessionStorage.getSession(cookie);
 }
 
-export async function getUserId(
+export async function getStaffId(
   request: Request,
-): Promise<User["id"] | undefined> {
+): Promise<Staff["id"] | undefined> {
   const session = await getSession(request);
-  const userId = session.get(USER_SESSION_KEY);
-  return userId;
+  const staffId = session.get(STAFF_SESSION_KEY);
+  return staffId;
 }
 
-export async function getUser(request: Request) {
-  const userId = await getUserId(request);
-  if (userId === undefined) return null;
-
-  const user = await getUserById(userId);
-  if (user) return user;
-
-  throw await logout(request);
+export async function getStaff(request: Request): Promise<Staff | null> {
+  const staffId = await getStaffId(request);
+  if (!staffId) return null;
+  const staff = await prisma.staff.findUnique({ where: { id: staffId } });
+  return staff;
 }
 
-export async function requireUserId(
-  request: Request,
-  redirectTo: string = new URL(request.url).pathname,
-) {
-  const userId = await getUserId(request);
-  if (!userId) {
-    const searchParams = new URLSearchParams([["redirectTo", redirectTo]]);
-    throw redirect(`/login?${searchParams}`);
+export async function requireStaff(request: Request): Promise<Staff> {
+  const staff = await getStaff(request);
+  if (!staff || !staff.active) {
+    throw redirect("/login");
   }
-  return userId;
+  return staff;
 }
 
-export async function requireUser(request: Request) {
-  const userId = await requireUserId(request);
-
-  const user = await getUserById(userId);
-  if (user) return user;
-
-  throw await logout(request);
-}
-
-export async function createUserSession({
+export async function createStaffSession({
   request,
-  userId,
-  remember,
+  staffId,
   redirectTo,
 }: {
   request: Request;
-  userId: string;
-  remember: boolean;
+  staffId: string;
   redirectTo: string;
 }) {
   const session = await getSession(request);
-  session.set(USER_SESSION_KEY, userId);
+  session.set(STAFF_SESSION_KEY, staffId);
   return redirect(redirectTo, {
     headers: {
       "Set-Cookie": await sessionStorage.commitSession(session, {
-        maxAge: remember
-          ? 60 * 60 * 24 * 7 // 7 days
-          : undefined,
+        maxAge: 60 * 60 * 24 * 7, // 7 days
       }),
     },
   });
@@ -89,7 +69,7 @@ export async function createUserSession({
 
 export async function logout(request: Request) {
   const session = await getSession(request);
-  return redirect("/", {
+  return redirect("/login", {
     headers: {
       "Set-Cookie": await sessionStorage.destroySession(session),
     },
