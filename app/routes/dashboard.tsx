@@ -1,6 +1,6 @@
 import type { LoaderFunctionArgs, MetaFunction } from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { Form, useLoaderData } from "@remix-run/react";
+import { Form, Link, useLoaderData } from "@remix-run/react";
 
 import { prisma } from "~/db.server";
 import { requireStaff } from "~/session.server";
@@ -57,10 +57,22 @@ export default function Dashboard() {
       </header>
 
       <main className="mx-auto max-w-5xl px-6 py-8">
+        <nav className="mb-6">
+          <Link
+            to="/beds"
+            className="inline-block rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            Manage beds →
+          </Link>
+        </nav>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <StatCard label="Pending jobs" value={stats.pendingJobs} />
+          <Link to="/beds">
+            <StatCard label="Pending jobs" value={stats.pendingJobs} />
+          </Link>
           <StatCard label="In production" value={stats.inProductionJobs} />
-          <StatCard label="Open beds" value={stats.openBeds} />
+          <Link to="/beds">
+            <StatCard label="Open beds" value={stats.openBeds} />
+          </Link>
           <StatCard
             label="Awaiting reprint"
             value={stats.piecesNeedingReprint}
