@@ -6,6 +6,10 @@ import {
   parseMaterial,
   parseSize,
 } from "~/lib/shopify.server";
+import {
+  fetchProductMaterial,
+  isAdminConfigured,
+} from "~/lib/shopify-admin.server";
 
 export type { PrintJob };
 
@@ -51,7 +55,14 @@ export async function upsertJobsFromOrder(
     }
 
     const size = parseSize(item) ?? "unknown";
-    const material = parseMaterial(item) ?? "unknown";
+    let material = parseMaterial(item) ?? "unknown";
+
+    // Material usually lives on the product (tags/metafield), which isn't in
+    // the webhook payload — enrich via the Admin API when it's unresolved.
+    if (material === "unknown" && item.product_id && isAdminConfigured()) {
+      const enriched = await fetchProductMaterial(item.product_id);
+      if (enriched) material = enriched;
+    }
 
     const job = await prisma.printJob.create({
       data: {
