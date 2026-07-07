@@ -15,6 +15,7 @@ const DEFAULT_CAPACITY_BY_SIZE: Record<string, number> = {
   "2x3": 42,
   "4x4": 15,
   "5x7": 9,
+  "6x6": 18,
   "8x8": 10,
   "8x10": 4,
   "11x14": 4,
