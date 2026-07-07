@@ -53,6 +53,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 const PER_PAGE = 10;
 
+type AggRow = {
+  key: string;
+  size: string;
+  material: string;
+  productTitle: string;
+  sku: string;
+  orders: string[];
+  jobIds: string[];
+  qty: number;
+  reprint: boolean;
+};
+
 export default function BedMaker() {
   const { staffName, jobs, capacities } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
@@ -72,7 +84,7 @@ export default function BedMaker() {
     [jobs],
   );
 
-  const filtered = useMemo(() => {
+  const filteredJobs = useMemo(() => {
     const q = search.trim().toLowerCase();
     return jobs.filter((j) => {
       if (sizeFilter && j.size !== sizeFilter) return false;
@@ -86,27 +98,54 @@ export default function BedMaker() {
     });
   }, [jobs, search, sizeFilter, materialFilter]);
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  // Aggregate same-kind jobs (same product + size + material) into one row,
+  // summing quantity so identical items fill one bed together.
+  const rows = useMemo(() => {
+    const map = new Map<string, AggRow>();
+    for (const j of filteredJobs) {
+      const key = `${j.size}|${j.material}|${j.sku || j.productTitle}`;
+      let r = map.get(key);
+      if (!r) {
+        r = {
+          key,
+          size: j.size,
+          material: j.material,
+          productTitle: j.productTitle,
+          sku: j.sku,
+          orders: [],
+          jobIds: [],
+          qty: 0,
+          reprint: false,
+        };
+        map.set(key, r);
+      }
+      r.jobIds.push(j.id);
+      r.orders.push(j.orderName);
+      r.qty += j.quantity;
+      if (isReprintJob(j.lineItemKey)) r.reprint = true;
+    }
+    return [...map.values()];
+  }, [filteredJobs]);
+
+  const pageCount = Math.max(1, Math.ceil(rows.length / PER_PAGE));
   const current = Math.min(page, pageCount - 1);
-  const pageRows = filtered.slice(
-    current * PER_PAGE,
-    current * PER_PAGE + PER_PAGE,
-  );
+  const pageRows = rows.slice(current * PER_PAGE, current * PER_PAGE + PER_PAGE);
 
-  const selectedJobs = jobs.filter((j) => selected.has(j.id));
-  const first = selectedJobs[0];
+  const selectedRows = rows.filter((r) => selected.has(r.key));
+  const first = selectedRows[0];
   const uniform =
-    selectedJobs.length === 0 ||
-    selectedJobs.every(
-      (j) => j.size === first.size && j.material === first.material,
+    selectedRows.length === 0 ||
+    selectedRows.every(
+      (r) => r.size === first.size && r.material === first.material,
     );
-  const canCreate = selectedJobs.length > 0 && uniform;
+  const selectedJobIds = selectedRows.flatMap((r) => r.jobIds);
+  const canCreate = selectedRows.length > 0 && uniform;
 
-  function toggle(id: string) {
+  function toggle(key: string) {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
@@ -114,16 +153,16 @@ export default function BedMaker() {
   function togglePage(checked: boolean) {
     setSelected((prev) => {
       const next = new Set(prev);
-      for (const j of pageRows) {
-        if (checked) next.add(j.id);
-        else next.delete(j.id);
+      for (const r of pageRows) {
+        if (checked) next.add(r.key);
+        else next.delete(r.key);
       }
       return next;
     });
   }
 
   const allPageSelected =
-    pageRows.length > 0 && pageRows.every((j) => selected.has(j.id));
+    pageRows.length > 0 && pageRows.every((r) => selected.has(r.key));
 
   function resetFilters() {
     setSearch("");
@@ -204,11 +243,11 @@ export default function BedMaker() {
                     onChange={(e) => togglePage(e.target.checked)}
                   />
                 </th>
-                <th className="px-3 py-2.5 font-medium">Order</th>
+                <th className="px-3 py-2.5 font-medium">Description</th>
                 <th className="px-3 py-2.5 font-medium">SKU</th>
                 <th className="px-3 py-2.5 font-medium">Material</th>
-                <th className="px-3 py-2.5 font-medium">Description</th>
                 <th className="px-3 py-2.5 font-medium">Size</th>
+                <th className="px-3 py-2.5 text-right font-medium">Orders</th>
                 <th className="px-3 py-2.5 text-right font-medium">Qty</th>
                 <th className="w-36 px-3 py-2.5 font-medium">Filled</th>
               </tr>
@@ -224,41 +263,45 @@ export default function BedMaker() {
                   </td>
                 </tr>
               ) : (
-                pageRows.map((j) => {
-                  const cap = capacities[capacityKey(j.size, j.material)] ?? null;
-                  const pct = fillPercent(j.quantity, cap);
+                pageRows.map((r) => {
+                  const cap =
+                    capacities[capacityKey(r.size, r.material)] ?? null;
+                  const pct = fillPercent(r.qty, cap);
                   return (
                     <tr
-                      key={j.id}
+                      key={r.key}
                       className="border-t border-gray-100 hover:bg-gray-50"
                     >
                       <td className="px-3 py-2.5">
                         <input
                           type="checkbox"
-                          checked={selected.has(j.id)}
-                          onChange={() => toggle(j.id)}
+                          checked={selected.has(r.key)}
+                          onChange={() => toggle(r.key)}
                         />
                       </td>
-                      <td className="px-3 py-2.5 font-medium text-gray-900">
-                        {j.orderName}
-                        {isReprintJob(j.lineItemKey) ? (
+                      <td className="px-3 py-2.5 text-gray-900">
+                        <span className="font-medium">{r.productTitle}</span>
+                        {r.reprint ? (
                           <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">
                             reprint
                           </span>
                         ) : null}
+                        <div className="text-xs text-gray-400">
+                          {r.orders.join(", ")}
+                        </div>
                       </td>
                       <td className="px-3 py-2.5 font-mono text-gray-500">
-                        {j.sku || "—"}
+                        {r.sku || "—"}
                       </td>
                       <td className="px-3 py-2.5 text-gray-600">
-                        {j.material}
+                        {r.material}
                       </td>
-                      <td className="px-3 py-2.5 text-gray-900">
-                        {j.productTitle}
+                      <td className="px-3 py-2.5 text-gray-600">{r.size}</td>
+                      <td className="px-3 py-2.5 text-right text-gray-600">
+                        {r.orders.length}
                       </td>
-                      <td className="px-3 py-2.5 text-gray-600">{j.size}</td>
                       <td className="px-3 py-2.5 text-right text-gray-900">
-                        {j.quantity}
+                        {r.qty}
                       </td>
                       <td className="px-3 py-2.5">
                         {cap === null ? (
@@ -277,7 +320,7 @@ export default function BedMaker() {
                               />
                             </div>
                             <span className="whitespace-nowrap text-xs text-gray-400">
-                              {j.quantity}/{cap}
+                              {r.qty}/{cap}
                             </span>
                           </div>
                         )}
@@ -292,7 +335,9 @@ export default function BedMaker() {
 
         <div className="mt-3 flex items-center justify-between text-sm">
           <span className="text-gray-400">
-            {selected.size} of {filtered.length} selected
+            {selectedRows.length} of {rows.length} selected ·{" "}
+            {selectedJobIds.length} piece
+            {selectedJobIds.length === 1 ? "" : "s"}
           </span>
           <div className="flex items-center gap-3">
             <button
@@ -322,7 +367,7 @@ export default function BedMaker() {
             </span>
           ) : null}
           <Form method="post">
-            {[...selected].map((id) => (
+            {selectedJobIds.map((id) => (
               <input key={id} type="hidden" name="jobId" value={id} />
             ))}
             <button
@@ -330,7 +375,7 @@ export default function BedMaker() {
               disabled={!canCreate}
               className="rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-gray-300"
             >
-              Create bed ({selected.size})
+              Create bed ({selectedJobIds.length})
             </button>
           </Form>
         </div>
