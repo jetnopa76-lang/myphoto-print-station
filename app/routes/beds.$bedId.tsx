@@ -200,9 +200,9 @@ export default function BedDetail() {
           {prepared ? (
             <a
               href={`/beds/${bed.id}/manifest`}
-              className="rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="rounded bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700"
             >
-              Manifest (PDF)
+              Download ticket (PDF)
             </a>
           ) : (
             <Form method="post">

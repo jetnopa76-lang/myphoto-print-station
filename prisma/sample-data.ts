@@ -157,6 +157,9 @@ async function main() {
   if (process.argv.includes("--clear")) {
     await clear();
   } else {
+    // Reset first so every run gives a fresh set of *pending* orders,
+    // even if a previous run's jobs were batched into beds.
+    await clear();
     await seed();
   }
 }

@@ -14,6 +14,7 @@ import {
   createBedFromSelection,
   groupPendingJobs,
 } from "~/models/bed.server";
+import { generatePiecesForBed } from "~/models/piece.server";
 import { requireStaff } from "~/session.server";
 
 export const meta: MetaFunction = () => [
@@ -34,6 +35,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   try {
     const bed = await createBedFromSelection(jobIds, staff.id);
+    // Generate QR pieces right away so the ticket is ready to download.
+    await generatePiecesForBed(bed.id);
     return redirect(`/beds/${bed.id}`);
   } catch (error) {
     if (error instanceof BedCreationError) {

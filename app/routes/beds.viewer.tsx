@@ -106,9 +106,9 @@ export default function BedViewer() {
                           {bed._count.pieces > 0 ? (
                             <a
                               href={`/beds/${bed.id}/manifest`}
-                              className="rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                              className="rounded-md bg-teal-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-teal-700"
                             >
-                              Manifest
+                              Ticket
                             </a>
                           ) : null}
                           <Link
