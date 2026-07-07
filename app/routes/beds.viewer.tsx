@@ -3,7 +3,7 @@ import { json } from "@remix-run/node";
 import { Link, useLoaderData } from "@remix-run/react";
 
 import { AppShell } from "~/components/app-shell";
-import { capacityKey } from "~/lib/bed-capacity";
+import { capacityKey, defaultCapacity } from "~/lib/bed-capacity";
 import { getCapacityMap } from "~/lib/bedster.server";
 import { listActiveBeds } from "~/models/bed.server";
 import { requireStaff } from "~/session.server";
@@ -65,7 +65,8 @@ export default function BedViewer() {
                     0,
                   );
                   const cap =
-                    capacities[capacityKey(bed.size, bed.material)] ?? null;
+                    capacities[capacityKey(bed.size, bed.material)] ??
+                    defaultCapacity(bed.size);
                   const pct = cap
                     ? Math.min(100, Math.round((total / cap) * 100))
                     : 0;

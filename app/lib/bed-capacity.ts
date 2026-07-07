@@ -7,6 +7,24 @@ export function normalizeSize(size: string): string {
   return size.trim().toLowerCase().replace(/\s+/g, "");
 }
 
+// Fallback capacities by size, used only when Bedster's /api/templates
+// hasn't provided one. Bedster is the source of truth; these keep the fill
+// bars working until that endpoint exists.
+const DEFAULT_CAPACITY_BY_SIZE: Record<string, number> = {
+  "2x2": 63,
+  "2x3": 42,
+  "4x4": 15,
+  "5x7": 9,
+  "8x8": 10,
+  "8x10": 4,
+  "11x14": 4,
+  "12x14": 10,
+};
+
+export function defaultCapacity(size: string): number | null {
+  return DEFAULT_CAPACITY_BY_SIZE[normalizeSize(size)] ?? null;
+}
+
 /** Cache/lookup key for a capacity: size + material, normalized. */
 export function capacityKey(size: string, material: string): string {
   return `${normalizeSize(size)}|${material.trim().toLowerCase()}`;

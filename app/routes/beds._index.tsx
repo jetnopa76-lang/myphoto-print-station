@@ -8,7 +8,7 @@ import { Form, useActionData, useLoaderData } from "@remix-run/react";
 import { useMemo, useState } from "react";
 
 import { AppShell } from "~/components/app-shell";
-import { capacityKey, fillPercent } from "~/lib/bed-capacity";
+import { capacityKey, defaultCapacity, fillPercent } from "~/lib/bed-capacity";
 import { getCapacityMap } from "~/lib/bedster.server";
 import { isReprintJob } from "~/lib/reprint";
 import {
@@ -265,7 +265,8 @@ export default function BedMaker() {
               ) : (
                 pageRows.map((r) => {
                   const cap =
-                    capacities[capacityKey(r.size, r.material)] ?? null;
+                    capacities[capacityKey(r.size, r.material)] ??
+                    defaultCapacity(r.size);
                   const pct = fillPercent(r.qty, cap);
                   return (
                     <tr
