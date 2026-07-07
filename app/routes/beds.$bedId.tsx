@@ -14,7 +14,12 @@ import {
 import invariant from "tiny-invariant";
 
 import { sendBedToBedster } from "~/lib/bedster.server";
-import { claimBed, getBed, markBedSent } from "~/models/bed.server";
+import {
+  claimBed,
+  getBed,
+  markBedImposed,
+  markBedSent,
+} from "~/models/bed.server";
 import { generatePiecesForBed, piecesForBed } from "~/models/piece.server";
 import { requireStaff } from "~/session.server";
 
@@ -31,7 +36,8 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     throw new Response("Bed not found", { status: 404 });
   }
   const pieces = await piecesForBed(bed.id);
-  return json({ bed, pieces });
+  const canSimulate = process.env.ALLOW_SIMULATE_IMPOSITION === "true";
+  return json({ bed, pieces, canSimulate });
 };
 
 function callbackUrl(request: Request): string {
@@ -77,11 +83,27 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     return json({ ok: true });
   }
 
+  if (intent === "simulate") {
+    if (process.env.ALLOW_SIMULATE_IMPOSITION !== "true") {
+      return json({ ok: false, error: "Simulation is disabled." }, { status: 403 });
+    }
+    const bed = await getBed(params.bedId);
+    if (!bed) throw new Response("Bed not found", { status: 404 });
+    // Stand-in "print file": point at this bed's own manifest so the
+    // Print file button downloads something during a dev run.
+    await markBedImposed(
+      bed.workOrderNum,
+      `/beds/${bed.id}/manifest`,
+      "imposed",
+    );
+    return json({ ok: true });
+  }
+
   return json({ ok: true });
 };
 
 export default function BedDetail() {
-  const { bed, pieces } = useLoaderData<typeof loader>();
+  const { bed, pieces, canSimulate } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const totalPieces = bed.items.reduce((sum, item) => sum + item.quantity, 0);
@@ -128,6 +150,23 @@ export default function BedDetail() {
             <span className="rounded bg-amber-100 px-3 py-2 text-sm font-medium text-amber-800">
               Awaiting imposition…
             </span>
+          ) : null}
+
+          {canSimulate &&
+          (bed.status === "open" || bed.status === "sent_to_bedster") ? (
+            <Form method="post">
+              <input type="hidden" name="intent" value="simulate" />
+              <button
+                type="submit"
+                disabled={busy}
+                className="rounded border border-dashed border-purple-400 px-4 py-2 text-sm font-medium text-purple-700 hover:bg-purple-50 disabled:opacity-50"
+                title="Dev only: mark this bed imposed without calling Bedster"
+              >
+                {pendingIntent === "simulate"
+                  ? "Simulating…"
+                  : "Simulate imposition (dev)"}
+              </button>
+            </Form>
           ) : null}
 
           {bed.status === "imposed" ? (
