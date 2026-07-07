@@ -11,11 +11,13 @@ export function normalizeSize(size: string): string {
 // hasn't provided one. Bedster is the source of truth; these keep the fill
 // bars working until that endpoint exists.
 const DEFAULT_CAPACITY_BY_SIZE: Record<string, number> = {
+  // Verified from IDML frame counts:
+  "4x4": 30,
+  "5x7": 18,
+  "6x6": 18,
+  // Unverified guesses — Bedster overrides these once its templates exist:
   "2x2": 63,
   "2x3": 42,
-  "4x4": 15,
-  "5x7": 9,
-  "6x6": 18,
   "8x8": 10,
   "8x10": 4,
   "11x14": 4,
