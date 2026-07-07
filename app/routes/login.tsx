@@ -15,7 +15,7 @@ export const meta: MetaFunction = () => [{ title: "Sign in — Print Station" }]
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const staffId = await getStaffId(request);
-  if (staffId) return redirect("/dashboard");
+  if (staffId) return redirect("/beds");
   return json({});
 };
 
@@ -23,7 +23,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const formData = await request.formData();
   const name = formData.get("name");
   const pin = formData.get("pin");
-  const redirectTo = safeRedirect(formData.get("redirectTo"), "/dashboard");
+  const redirectTo = safeRedirect(formData.get("redirectTo"), "/beds");
 
   if (typeof name !== "string" || name.length === 0) {
     return json(
@@ -56,7 +56,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 export default function LoginPage() {
   const [searchParams] = useSearchParams();
-  const redirectTo = searchParams.get("redirectTo") || "/dashboard";
+  const redirectTo = searchParams.get("redirectTo") || "/beds";
   const actionData = useActionData<typeof action>();
   const nameRef = useRef<HTMLInputElement>(null);
   const pinRef = useRef<HTMLInputElement>(null);

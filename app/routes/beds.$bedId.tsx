@@ -13,6 +13,7 @@ import {
 } from "@remix-run/react";
 import invariant from "tiny-invariant";
 
+import { AppShell } from "~/components/app-shell";
 import { sendBedToBedster } from "~/lib/bedster.server";
 import {
   claimBed,
@@ -28,7 +29,7 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
 ];
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
-  await requireStaff(request);
+  const staff = await requireStaff(request);
   invariant(params.bedId, "bedId is required");
 
   const bed = await getBed(params.bedId);
@@ -37,7 +38,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   }
   const pieces = await piecesForBed(bed.id);
   const canSimulate = process.env.ALLOW_SIMULATE_IMPOSITION === "true";
-  return json({ bed, pieces, canSimulate });
+  return json({ bed, pieces, canSimulate, staffName: staff.name });
 };
 
 function callbackUrl(request: Request): string {
@@ -103,7 +104,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 };
 
 export default function BedDetail() {
-  const { bed, pieces, canSimulate } = useLoaderData<typeof loader>();
+  const { bed, pieces, canSimulate, staffName } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const totalPieces = bed.items.reduce((sum, item) => sum + item.quantity, 0);
@@ -119,20 +120,23 @@ export default function BedDetail() {
   const sendError = (actionData as { error?: string } | undefined)?.error;
 
   return (
-    <div className="min-h-full bg-gray-50">
-      <header className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
-        <div className="flex items-center gap-4">
-          <Link to="/beds" className="text-sm text-blue-600 hover:underline">
-            ← Beds
+    <AppShell active="viewer" staffName={staffName}>
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Link
+            to="/beds/viewer"
+            className="text-sm text-teal-700 hover:underline"
+          >
+            ← Queue
           </Link>
-          <h1 className="text-xl font-bold text-gray-900">
+          <h1 className="text-xl font-semibold text-gray-900">
             {bed.workOrderNum}
           </h1>
           <span className="rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600">
             {bed.status}
           </span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {bed.status === "open" ? (
             <Form method="post">
               <input type="hidden" name="intent" value="send" />
@@ -213,9 +217,9 @@ export default function BedDetail() {
             </Form>
           )}
         </div>
-      </header>
+      </div>
 
-      <main className="mx-auto max-w-4xl space-y-6 px-6 py-8">
+      <div className="space-y-6">
         {sendError ? (
           <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
             {sendError}
@@ -295,7 +299,7 @@ export default function BedDetail() {
             </ul>
           </section>
         ) : null}
-      </main>
-    </div>
+      </div>
+    </AppShell>
   );
 }

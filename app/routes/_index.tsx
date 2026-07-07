@@ -5,5 +5,5 @@ import { getStaffId } from "~/session.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const staffId = await getStaffId(request);
-  return redirect(staffId ? "/dashboard" : "/login");
+  return redirect(staffId ? "/beds" : "/login");
 };

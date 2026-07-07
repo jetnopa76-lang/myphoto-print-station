@@ -4,56 +4,36 @@ import type {
   MetaFunction,
 } from "@remix-run/node";
 import { json, redirect } from "@remix-run/node";
-import { Form, Link, useActionData, useLoaderData } from "@remix-run/react";
+import { Form, useActionData, useLoaderData } from "@remix-run/react";
+import { useMemo, useState } from "react";
 
+import { AppShell } from "~/components/app-shell";
+import { bedCapacity, fillPercent } from "~/lib/bed-capacity";
 import {
   BedCreationError,
-  createBedFromJobs,
+  createBedFromSelection,
   groupPendingJobs,
-  listActiveBeds,
 } from "~/models/bed.server";
 import { requireStaff } from "~/session.server";
 
-export const meta: MetaFunction = () => [{ title: "Beds — Print Station" }];
-
-const STATUS_LABEL: Record<string, string> = {
-  open: "Open",
-  sent_to_bedster: "At Bedster",
-  imposed: "Ready to claim",
-  printing: "Printing",
-};
-
-const STATUS_STYLE: Record<string, string> = {
-  open: "bg-gray-100 text-gray-600",
-  sent_to_bedster: "bg-amber-100 text-amber-800",
-  imposed: "bg-green-100 text-green-800",
-  printing: "bg-blue-100 text-blue-800",
-};
+export const meta: MetaFunction = () => [
+  { title: "Bed Maker — Print Station" },
+];
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  await requireStaff(request);
-  const [groups, queue] = await Promise.all([
-    groupPendingJobs(),
-    listActiveBeds(),
-  ]);
-  return json({ groups, queue });
+  const staff = await requireStaff(request);
+  const groups = await groupPendingJobs();
+  const jobs = groups.flatMap((g) => g.jobs);
+  return json({ staffName: staff.name, jobs });
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const staff = await requireStaff(request);
   const formData = await request.formData();
-
-  const size = String(formData.get("size") ?? "");
-  const material = String(formData.get("material") ?? "");
   const jobIds = formData.getAll("jobId").map(String);
 
   try {
-    const bed = await createBedFromJobs({
-      size,
-      material,
-      jobIds,
-      staffId: staff.id,
-    });
+    const bed = await createBedFromSelection(jobIds, staff.id);
     return redirect(`/beds/${bed.id}`);
   } catch (error) {
     if (error instanceof BedCreationError) {
@@ -63,142 +43,276 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 };
 
-export default function BedsIndex() {
-  const { groups, queue } = useLoaderData<typeof loader>();
+const PER_PAGE = 10;
+
+export default function BedMaker() {
+  const { staffName, jobs } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
-  return (
-    <div className="min-h-full bg-gray-50">
-      <header className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
-        <div className="flex items-center gap-4">
-          <Link to="/dashboard" className="text-sm text-blue-600 hover:underline">
-            ← Dashboard
-          </Link>
-          <h1 className="text-xl font-bold text-gray-900">Beds</h1>
-        </div>
-      </header>
+  const [search, setSearch] = useState("");
+  const [sizeFilter, setSizeFilter] = useState("");
+  const [materialFilter, setMaterialFilter] = useState("");
+  const [page, setPage] = useState(0);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
-      <main className="mx-auto max-w-5xl space-y-8 px-6 py-8">
+  const sizes = useMemo(
+    () => [...new Set(jobs.map((j) => j.size))].sort(),
+    [jobs],
+  );
+  const materials = useMemo(
+    () => [...new Set(jobs.map((j) => j.material))].sort(),
+    [jobs],
+  );
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return jobs.filter((j) => {
+      if (sizeFilter && j.size !== sizeFilter) return false;
+      if (materialFilter && j.material !== materialFilter) return false;
+      if (!q) return true;
+      return (
+        j.orderName.toLowerCase().includes(q) ||
+        j.sku.toLowerCase().includes(q) ||
+        j.productTitle.toLowerCase().includes(q)
+      );
+    });
+  }, [jobs, search, sizeFilter, materialFilter]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const current = Math.min(page, pageCount - 1);
+  const pageRows = filtered.slice(
+    current * PER_PAGE,
+    current * PER_PAGE + PER_PAGE,
+  );
+
+  const selectedJobs = jobs.filter((j) => selected.has(j.id));
+  const first = selectedJobs[0];
+  const uniform =
+    selectedJobs.length === 0 ||
+    selectedJobs.every(
+      (j) => j.size === first.size && j.material === first.material,
+    );
+  const canCreate = selectedJobs.length > 0 && uniform;
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function togglePage(checked: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const j of pageRows) {
+        if (checked) next.add(j.id);
+        else next.delete(j.id);
+      }
+      return next;
+    });
+  }
+
+  const allPageSelected =
+    pageRows.length > 0 && pageRows.every((j) => selected.has(j.id));
+
+  function resetFilters() {
+    setSearch("");
+    setSizeFilter("");
+    setMaterialFilter("");
+    setPage(0);
+  }
+
+  return (
+    <AppShell active="maker" staffName={staffName}>
+      <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <h1 className="mb-4 text-base font-medium text-gray-900">
+          Create print bed
+        </h1>
+
         {actionData?.error ? (
-          <div className="rounded border border-red-200 bg-red-50 p-3 text-red-700">
+          <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
             {actionData.error}
           </div>
         ) : null}
 
-        <section>
-          <h2 className="mb-3 text-lg font-semibold text-gray-900">
-            Pending jobs, grouped
-          </h2>
-          {groups.length === 0 ? (
-            <p className="text-gray-500">No pending jobs.</p>
-          ) : (
-            <div className="space-y-4">
-              {groups.map((group) => (
-                <div
-                  key={`${group.size}|${group.material}`}
-                  className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
-                >
-                  <div className="mb-2 flex items-center justify-between">
-                    <div>
-                      <span className="font-semibold text-gray-900">
-                        {group.label}
-                      </span>
-                      <span className="ml-2 text-sm text-gray-500">
-                        {group.jobs.length} job
-                        {group.jobs.length === 1 ? "" : "s"} ·{" "}
-                        {group.totalQuantity} piece
-                        {group.totalQuantity === 1 ? "" : "s"}
-                      </span>
-                    </div>
-                    {!group.ready ? (
-                      <span className="rounded bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-800">
-                        needs size/material
-                      </span>
-                    ) : null}
-                  </div>
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <input
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(0);
+            }}
+            placeholder="Search order, SKU, or description…"
+            className="h-9 flex-1 rounded-md border border-gray-300 px-3 text-sm"
+          />
+          <select
+            value={sizeFilter}
+            onChange={(e) => {
+              setSizeFilter(e.target.value);
+              setPage(0);
+            }}
+            className="h-9 rounded-md border border-gray-300 px-2 text-sm"
+          >
+            <option value="">All sizes</option>
+            {sizes.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+          <select
+            value={materialFilter}
+            onChange={(e) => {
+              setMaterialFilter(e.target.value);
+              setPage(0);
+            }}
+            className="h-9 rounded-md border border-gray-300 px-2 text-sm"
+          >
+            <option value="">All materials</option>
+            {materials.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={resetFilters}
+            className="h-9 rounded-md border border-gray-300 px-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Reset
+          </button>
+        </div>
 
-                  <Form method="post">
-                    <input type="hidden" name="size" value={group.size} />
-                    <input
-                      type="hidden"
-                      name="material"
-                      value={group.material}
-                    />
-                    <ul className="mb-3 divide-y divide-gray-100 text-sm">
-                      {group.jobs.map((job) => (
-                        <li
-                          key={job.id}
-                          className="flex items-center gap-2 py-1.5"
-                        >
-                          <input
-                            type="checkbox"
-                            name="jobId"
-                            value={job.id}
-                            defaultChecked
-                            disabled={!group.ready}
-                          />
-                          <span className="font-medium text-gray-700">
-                            {job.orderName}
-                          </span>
-                          <span className="text-gray-500">
-                            {job.productTitle}
-                          </span>
-                          <span className="ml-auto text-gray-400">
-                            ×{job.quantity}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                    <button
-                      type="submit"
-                      disabled={!group.ready}
-                      className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
-                    >
-                      Create bed
-                    </button>
-                  </Form>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section>
-          <h2 className="mb-3 text-lg font-semibold text-gray-900">
-            Bed queue
-          </h2>
-          {queue.length === 0 ? (
-            <p className="text-gray-500">No beds in the queue.</p>
-          ) : (
-            <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 bg-white">
-              {queue.map((bed) => (
-                <li
-                  key={bed.id}
-                  className="flex items-center justify-between px-4 py-3"
-                >
-                  <Link to={`/beds/${bed.id}`} className="hover:underline">
-                    <span className="font-medium text-gray-900">
-                      {bed.workOrderNum}
-                    </span>
-                    <span className="ml-2 text-gray-500">{bed.label}</span>
-                    <span
-                      className={`ml-2 rounded px-2 py-0.5 text-xs font-medium ${STATUS_STYLE[bed.status] ?? "bg-gray-100 text-gray-600"}`}
-                    >
-                      {STATUS_LABEL[bed.status] ?? bed.status}
-                    </span>
-                  </Link>
-                  <Link
-                    to={`/beds/${bed.id}`}
-                    className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50"
+        <div className="overflow-x-auto rounded-lg border border-gray-200">
+          <table className="w-full min-w-[640px] border-collapse text-sm">
+            <thead>
+              <tr className="bg-gray-50 text-left text-gray-500">
+                <th className="w-9 px-3 py-2.5">
+                  <input
+                    type="checkbox"
+                    checked={allPageSelected}
+                    onChange={(e) => togglePage(e.target.checked)}
+                  />
+                </th>
+                <th className="px-3 py-2.5 font-medium">Order</th>
+                <th className="px-3 py-2.5 font-medium">SKU</th>
+                <th className="px-3 py-2.5 font-medium">Material</th>
+                <th className="px-3 py-2.5 font-medium">Description</th>
+                <th className="px-3 py-2.5 font-medium">Size</th>
+                <th className="px-3 py-2.5 text-right font-medium">Qty</th>
+                <th className="w-36 px-3 py-2.5 font-medium">Filled</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pageRows.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={8}
+                    className="px-3 py-8 text-center text-gray-400"
                   >
-                    Open
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </main>
-    </div>
+                    No pending work orders.
+                  </td>
+                </tr>
+              ) : (
+                pageRows.map((j) => {
+                  const cap = bedCapacity(j.size);
+                  const pct = fillPercent(j.quantity, j.size);
+                  return (
+                    <tr
+                      key={j.id}
+                      className="border-t border-gray-100 hover:bg-gray-50"
+                    >
+                      <td className="px-3 py-2.5">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(j.id)}
+                          onChange={() => toggle(j.id)}
+                        />
+                      </td>
+                      <td className="px-3 py-2.5 font-medium text-gray-900">
+                        {j.orderName}
+                      </td>
+                      <td className="px-3 py-2.5 font-mono text-gray-500">
+                        {j.sku || "—"}
+                      </td>
+                      <td className="px-3 py-2.5 text-gray-600">
+                        {j.material}
+                      </td>
+                      <td className="px-3 py-2.5 text-gray-900">
+                        {j.productTitle}
+                      </td>
+                      <td className="px-3 py-2.5 text-gray-600">{j.size}</td>
+                      <td className="px-3 py-2.5 text-right text-gray-900">
+                        {j.quantity}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <div className="flex items-center gap-2">
+                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-teal-100">
+                            <div
+                              className="h-full rounded-full bg-teal-600"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <span className="whitespace-nowrap text-xs text-gray-400">
+                            {j.quantity}/{cap}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-3 flex items-center justify-between text-sm">
+          <span className="text-gray-400">
+            {selected.size} of {filtered.length} selected
+          </span>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setPage(Math.max(0, current - 1))}
+              disabled={current === 0}
+              className="rounded-md border border-gray-300 px-3 py-1.5 font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <span className="text-gray-500">
+              Page {current + 1} of {pageCount}
+            </span>
+            <button
+              onClick={() => setPage(Math.min(pageCount - 1, current + 1))}
+              disabled={current >= pageCount - 1}
+              className="rounded-md border border-gray-300 px-3 py-1.5 font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-center justify-end gap-3 border-t border-gray-100 pt-4">
+          {!uniform ? (
+            <span className="text-sm text-amber-700">
+              Select one size + material to make a bed.
+            </span>
+          ) : null}
+          <Form method="post">
+            {[...selected].map((id) => (
+              <input key={id} type="hidden" name="jobId" value={id} />
+            ))}
+            <button
+              type="submit"
+              disabled={!canCreate}
+              className="rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+            >
+              Create bed ({selected.size})
+            </button>
+          </Form>
+        </div>
+      </div>
+    </AppShell>
   );
 }

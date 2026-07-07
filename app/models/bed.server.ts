@@ -170,6 +170,39 @@ export async function createBedFromJobs(
   }
 }
 
+/**
+ * Create a bed from a set of selected job ids. Derives size+material from
+ * the selection and requires they all match (a bed is one size + material).
+ */
+export async function createBedFromSelection(
+  jobIds: string[],
+  staffId?: string,
+) {
+  if (jobIds.length === 0) {
+    throw new BedCreationError("Select at least one work order.");
+  }
+
+  const jobs = await prisma.printJob.findMany({
+    where: { id: { in: jobIds } },
+    select: { size: true, material: true },
+  });
+  if (jobs.length === 0) {
+    throw new BedCreationError("No matching work orders found.");
+  }
+
+  const { size, material } = jobs[0];
+  const uniform = jobs.every(
+    (j) => j.size === size && j.material === material,
+  );
+  if (!uniform) {
+    throw new BedCreationError(
+      "All selected work orders must be the same size and material.",
+    );
+  }
+
+  return createBedFromJobs({ size, material, jobIds, staffId });
+}
+
 export async function listBeds(status?: string) {
   return prisma.bed.findMany({
     where: status ? { status } : undefined,
@@ -191,9 +224,14 @@ export async function getBed(id: string) {
 /** Beds still moving through the pipeline (not printed or canceled). */
 export async function listActiveBeds() {
   return prisma.bed.findMany({
-    where: { status: { in: ["open", "sent_to_bedster", "imposed", "printing"] } },
+    where: {
+      status: { in: ["open", "sent_to_bedster", "imposed", "printing"] },
+    },
     orderBy: { createdAt: "desc" },
-    include: { _count: { select: { items: true, pieces: true } } },
+    include: {
+      _count: { select: { items: true, pieces: true } },
+      items: { select: { quantity: true } },
+    },
   });
 }
 
