@@ -3,7 +3,8 @@ import { json } from "@remix-run/node";
 import { Link, useLoaderData } from "@remix-run/react";
 
 import { AppShell } from "~/components/app-shell";
-import { bedCapacity } from "~/lib/bed-capacity";
+import { capacityKey } from "~/lib/bed-capacity";
+import { getCapacityMap } from "~/lib/bedster.server";
 import { listActiveBeds } from "~/models/bed.server";
 import { requireStaff } from "~/session.server";
 
@@ -13,8 +14,11 @@ export const meta: MetaFunction = () => [
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const staff = await requireStaff(request);
-  const beds = await listActiveBeds();
-  return json({ staffName: staff.name, beds });
+  const [beds, capacities] = await Promise.all([
+    listActiveBeds(),
+    getCapacityMap(),
+  ]);
+  return json({ staffName: staff.name, beds, capacities });
 };
 
 const STATUS: Record<string, { label: string; cls: string }> = {
@@ -25,7 +29,7 @@ const STATUS: Record<string, { label: string; cls: string }> = {
 };
 
 export default function BedViewer() {
-  const { staffName, beds } = useLoaderData<typeof loader>();
+  const { staffName, beds, capacities } = useLoaderData<typeof loader>();
 
   return (
     <AppShell active="viewer" staffName={staffName}>
@@ -60,8 +64,11 @@ export default function BedViewer() {
                     (sum, it) => sum + it.quantity,
                     0,
                   );
-                  const cap = bedCapacity(bed.size);
-                  const pct = Math.min(100, Math.round((total / cap) * 100));
+                  const cap =
+                    capacities[capacityKey(bed.size, bed.material)] ?? null;
+                  const pct = cap
+                    ? Math.min(100, Math.round((total / cap) * 100))
+                    : 0;
                   const status = STATUS[bed.status] ?? {
                     label: bed.status,
                     cls: "bg-gray-100 text-gray-700",
@@ -89,17 +96,21 @@ export default function BedViewer() {
                         </span>
                       </td>
                       <td className="px-3 py-2.5">
-                        <div className="flex items-center gap-2">
-                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-teal-100">
-                            <div
-                              className="h-full rounded-full bg-teal-600"
-                              style={{ width: `${pct}%` }}
-                            />
+                        {cap === null ? (
+                          <span className="text-xs text-gray-400">—</span>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-teal-100">
+                              <div
+                                className="h-full rounded-full bg-teal-600"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <span className="whitespace-nowrap text-xs text-gray-400">
+                              {total}/{cap}
+                            </span>
                           </div>
-                          <span className="whitespace-nowrap text-xs text-gray-400">
-                            {total}/{cap}
-                          </span>
-                        </div>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 text-right">
                         <div className="flex items-center justify-end gap-2">

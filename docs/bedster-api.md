@@ -82,6 +82,34 @@ Station records it and leaves the bed for manual attention.
 
 ---
 
+## 3. Print Station → Bedster: bed capacities (templates)
+
+Bedster's imposition templates define how many pieces of each size/material
+fit on one bed. Print Station reads them so its "Filled" bars and full-bed
+logic always match Bedster (no hardcoded capacities).
+
+```
+GET {BEDSTER_API_URL}/api/templates
+Authorization: Bearer {BEDSTER_API_KEY}
+```
+
+Response — an array (or `{ "templates": [...] }`):
+
+```json
+[
+  { "size": "6x6", "material": "Acrylic Block", "capacity": 12 },
+  { "size": "5x7", "material": "Acrylic Block", "capacity": 9 },
+  { "size": "8x10", "material": "Metal Print", "capacity": 4 }
+]
+```
+
+`size` and `material` must match the strings Print Station stores (case and
+spacing are normalized on match). Print Station caches the result for a few
+minutes. If this endpoint is missing or errors, capacities show as "—" and
+beds can still be created — they just won't show a fill amount.
+
+---
+
 ## Environment variables (Print Station side)
 
 | Variable | Purpose |

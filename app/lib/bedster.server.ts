@@ -2,9 +2,73 @@ import crypto from "node:crypto";
 
 import type { Bed, BedItem, PrintJob } from "@prisma/client";
 
+import { capacityKey } from "~/lib/bed-capacity";
 import type { ShopifyLineItemProperty } from "~/lib/shopify.server";
 
 export class BedsterConfigError extends Error {}
+
+// ─────────────────────────────────────────────────────
+// Bed capacities — sourced from Bedster's imposition templates.
+// ─────────────────────────────────────────────────────
+
+export interface BedsterTemplate {
+  size: string;
+  material: string;
+  capacity: number; // pieces per bed
+}
+
+let capacityCache: { map: Record<string, number>; at: number } | null = null;
+const CAPACITY_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Fetch the imposition templates (size/material → capacity) from Bedster.
+ * Returns [] if Bedster isn't configured or the request fails, so callers
+ * degrade to "unknown capacity" rather than erroring.
+ */
+export async function fetchBedsterTemplates(): Promise<BedsterTemplate[]> {
+  const apiUrl = process.env.BEDSTER_API_URL;
+  const apiKey = process.env.BEDSTER_API_KEY;
+  if (!apiUrl || !apiKey) return [];
+
+  try {
+    const res = await fetch(`${apiUrl.replace(/\/$/, "")}/api/templates`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!res.ok) return [];
+
+    const data = (await res.json()) as
+      | { templates?: BedsterTemplate[] }
+      | BedsterTemplate[];
+    const list = Array.isArray(data) ? data : (data.templates ?? []);
+    return list.filter(
+      (t) =>
+        t &&
+        typeof t.size === "string" &&
+        typeof t.material === "string" &&
+        typeof t.capacity === "number",
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Capacity lookup keyed by `capacityKey(size, material)`. Cached for a few
+ * minutes so we don't hit Bedster on every page load. Empty map when Bedster
+ * is unconfigured/unreachable.
+ */
+export async function getCapacityMap(): Promise<Record<string, number>> {
+  if (capacityCache && Date.now() - capacityCache.at < CAPACITY_TTL_MS) {
+    return capacityCache.map;
+  }
+  const templates = await fetchBedsterTemplates();
+  const map: Record<string, number> = {};
+  for (const t of templates) {
+    map[capacityKey(t.size, t.material)] = t.capacity;
+  }
+  capacityCache = { map, at: Date.now() };
+  return map;
+}
 
 function requireConfig(name: string): string {
   const value = process.env[name];

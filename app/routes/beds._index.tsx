@@ -8,7 +8,8 @@ import { Form, useActionData, useLoaderData } from "@remix-run/react";
 import { useMemo, useState } from "react";
 
 import { AppShell } from "~/components/app-shell";
-import { bedCapacity, fillPercent } from "~/lib/bed-capacity";
+import { capacityKey, fillPercent } from "~/lib/bed-capacity";
+import { getCapacityMap } from "~/lib/bedster.server";
 import { isReprintJob } from "~/lib/reprint";
 import {
   BedCreationError,
@@ -24,9 +25,12 @@ export const meta: MetaFunction = () => [
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const staff = await requireStaff(request);
-  const groups = await groupPendingJobs();
+  const [groups, capacities] = await Promise.all([
+    groupPendingJobs(),
+    getCapacityMap(),
+  ]);
   const jobs = groups.flatMap((g) => g.jobs);
-  return json({ staffName: staff.name, jobs });
+  return json({ staffName: staff.name, jobs, capacities });
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -50,7 +54,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 const PER_PAGE = 10;
 
 export default function BedMaker() {
-  const { staffName, jobs } = useLoaderData<typeof loader>();
+  const { staffName, jobs, capacities } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
   const [search, setSearch] = useState("");
@@ -221,8 +225,8 @@ export default function BedMaker() {
                 </tr>
               ) : (
                 pageRows.map((j) => {
-                  const cap = bedCapacity(j.size);
-                  const pct = fillPercent(j.quantity, j.size);
+                  const cap = capacities[capacityKey(j.size, j.material)] ?? null;
+                  const pct = fillPercent(j.quantity, cap);
                   return (
                     <tr
                       key={j.id}
@@ -257,17 +261,26 @@ export default function BedMaker() {
                         {j.quantity}
                       </td>
                       <td className="px-3 py-2.5">
-                        <div className="flex items-center gap-2">
-                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-teal-100">
-                            <div
-                              className="h-full rounded-full bg-teal-600"
-                              style={{ width: `${pct}%` }}
-                            />
-                          </div>
-                          <span className="whitespace-nowrap text-xs text-gray-400">
-                            {j.quantity}/{cap}
+                        {cap === null ? (
+                          <span
+                            className="text-xs text-gray-400"
+                            title="No Bedster template for this size/material yet"
+                          >
+                            —
                           </span>
-                        </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-teal-100">
+                              <div
+                                className="h-full rounded-full bg-teal-600"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <span className="whitespace-nowrap text-xs text-gray-400">
+                              {j.quantity}/{cap}
+                            </span>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
