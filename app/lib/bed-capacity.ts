@@ -25,9 +25,12 @@ export function defaultCapacity(size: string): number | null {
   return DEFAULT_CAPACITY_BY_SIZE[normalizeSize(size)] ?? null;
 }
 
-/** Cache/lookup key for a capacity: size + material, normalized. */
-export function capacityKey(size: string, material: string): string {
-  return `${normalizeSize(size)}|${material.trim().toLowerCase()}`;
+/**
+ * Cache/lookup key for a capacity. Capacity depends on piece size (how many
+ * fit on the tray), not material, so we key by size alone.
+ */
+export function capacityKey(size: string): string {
+  return normalizeSize(size);
 }
 
 /**

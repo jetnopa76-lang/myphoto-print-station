@@ -65,7 +65,7 @@ export default function BedViewer() {
                     0,
                   );
                   const cap =
-                    capacities[capacityKey(bed.size, bed.material)] ??
+                    capacities[capacityKey(bed.size)] ??
                     defaultCapacity(bed.size);
                   const pct = cap
                     ? Math.min(100, Math.round((total / cap) * 100))

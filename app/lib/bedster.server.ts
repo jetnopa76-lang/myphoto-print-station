@@ -13,8 +13,7 @@ export class BedsterConfigError extends Error {}
 
 export interface BedsterTemplate {
   size: string;
-  material: string;
-  capacity: number; // pieces per bed
+  capacity: number; // pieces per bed (capacity is per size)
 }
 
 let capacityCache: { map: Record<string, number>; at: number } | null = null;
@@ -28,11 +27,11 @@ const CAPACITY_TTL_MS = 5 * 60 * 1000;
 export async function fetchBedsterTemplates(): Promise<BedsterTemplate[]> {
   const apiUrl = process.env.BEDSTER_API_URL;
   const apiKey = process.env.BEDSTER_API_KEY;
-  if (!apiUrl || !apiKey) return [];
+  if (!apiUrl) return []; // templates endpoint only needs the URL
 
   try {
     const res = await fetch(`${apiUrl.replace(/\/$/, "")}/api/templates`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
     });
     if (!res.ok) return [];
 
@@ -41,11 +40,7 @@ export async function fetchBedsterTemplates(): Promise<BedsterTemplate[]> {
       | BedsterTemplate[];
     const list = Array.isArray(data) ? data : (data.templates ?? []);
     return list.filter(
-      (t) =>
-        t &&
-        typeof t.size === "string" &&
-        typeof t.material === "string" &&
-        typeof t.capacity === "number",
+      (t) => t && typeof t.size === "string" && typeof t.capacity === "number",
     );
   } catch {
     return [];
@@ -64,7 +59,7 @@ export async function getCapacityMap(): Promise<Record<string, number>> {
   const templates = await fetchBedsterTemplates();
   const map: Record<string, number> = {};
   for (const t of templates) {
-    map[capacityKey(t.size, t.material)] = t.capacity;
+    map[capacityKey(t.size)] = t.capacity;
   }
   capacityCache = { map, at: Date.now() };
   return map;

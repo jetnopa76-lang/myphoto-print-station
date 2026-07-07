@@ -265,7 +265,7 @@ export default function BedMaker() {
               ) : (
                 pageRows.map((r) => {
                   const cap =
-                    capacities[capacityKey(r.size, r.material)] ??
+                    capacities[capacityKey(r.size)] ??
                     defaultCapacity(r.size);
                   const pct = fillPercent(r.qty, cap);
                   return (
