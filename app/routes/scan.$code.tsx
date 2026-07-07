@@ -1,9 +1,14 @@
-import type { LoaderFunctionArgs, MetaFunction } from "@remix-run/node";
+import type {
+  ActionFunctionArgs,
+  LoaderFunctionArgs,
+  MetaFunction,
+} from "@remix-run/node";
 import { json } from "@remix-run/node";
-import { Link, useLoaderData } from "@remix-run/react";
+import { Form, Link, useActionData, useLoaderData } from "@remix-run/react";
 import invariant from "tiny-invariant";
 
 import { getPieceByQr } from "~/models/piece.server";
+import { recordQc, requestReprint } from "~/models/qc.server";
 import { requireStaff } from "~/session.server";
 
 export const meta: MetaFunction = () => [{ title: "Scan — Print Station" }];
@@ -11,9 +16,32 @@ export const meta: MetaFunction = () => [{ title: "Scan — Print Station" }];
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   await requireStaff(request);
   invariant(params.code, "code is required");
-
   const piece = await getPieceByQr(params.code);
   return json({ code: params.code, piece });
+};
+
+export const action = async ({ request, params }: ActionFunctionArgs) => {
+  const staff = await requireStaff(request);
+  invariant(params.code, "code is required");
+
+  const intent = (await request.formData()).get("intent");
+
+  if (intent === "qc_pass") {
+    await recordQc(params.code, staff.id, "qc_pass");
+    return json({ ok: true, message: "Marked QC pass." });
+  }
+  if (intent === "qc_fail") {
+    await recordQc(params.code, staff.id, "qc_fail");
+    return json({ ok: true, message: "Marked QC fail. Reprint available." });
+  }
+  if (intent === "reprint") {
+    const reprint = await requestReprint(params.code, staff.id);
+    return json({
+      ok: true,
+      message: `Reprint queued as a new work order for ${reprint.orderName}.`,
+    });
+  }
+  return json({ ok: true });
 };
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -27,17 +55,25 @@ function Row({ label, value }: { label: string; value: string }) {
 
 export default function Scan() {
   const { code, piece } = useLoaderData<typeof loader>();
+  const actionData = useActionData<typeof action>();
+  const message = (actionData as { message?: string } | undefined)?.message;
 
   return (
     <div className="min-h-full bg-gray-50">
       <header className="flex items-center gap-4 border-b border-gray-200 bg-white px-6 py-4">
-        <Link to="/dashboard" className="text-sm text-blue-600 hover:underline">
-          ← Dashboard
+        <Link to="/lookup" className="text-sm text-teal-700 hover:underline">
+          ← Lookup
         </Link>
-        <h1 className="text-xl font-bold text-gray-900">Scan result</h1>
+        <h1 className="text-xl font-semibold text-gray-900">Scan result</h1>
       </header>
 
       <main className="mx-auto max-w-md px-6 py-8">
+        {message ? (
+          <div className="mb-4 rounded-lg border border-teal-200 bg-teal-50 p-3 text-sm text-teal-800">
+            {message}
+          </div>
+        ) : null}
+
         {!piece ? (
           <div className="rounded-lg border border-red-200 bg-red-50 p-5 text-center">
             <p className="font-medium text-red-800">No piece found</p>
@@ -47,7 +83,7 @@ export default function Scan() {
             </p>
           </div>
         ) : (
-          <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
+          <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between">
               <span className="font-mono text-sm text-gray-500">
                 {piece.qrCode}
@@ -72,10 +108,43 @@ export default function Scan() {
               <Row label="Bed" value={piece.bed.workOrderNum} />
             ) : null}
 
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <Form method="post">
+                <input type="hidden" name="intent" value="qc_pass" />
+                <button
+                  type="submit"
+                  className="w-full rounded-lg bg-green-600 px-4 py-3 text-sm font-medium text-white hover:bg-green-700"
+                >
+                  QC pass
+                </button>
+              </Form>
+              <Form method="post">
+                <input type="hidden" name="intent" value="qc_fail" />
+                <button
+                  type="submit"
+                  className="w-full rounded-lg bg-red-600 px-4 py-3 text-sm font-medium text-white hover:bg-red-700"
+                >
+                  QC fail
+                </button>
+              </Form>
+            </div>
+
+            {piece.status === "qc_fail" ? (
+              <Form method="post" className="mt-3">
+                <input type="hidden" name="intent" value="reprint" />
+                <button
+                  type="submit"
+                  className="w-full rounded-lg border border-amber-400 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800 hover:bg-amber-100"
+                >
+                  Request reprint
+                </button>
+              </Form>
+            ) : null}
+
             {piece.bed ? (
               <Link
                 to={`/beds/${piece.bed.id}`}
-                className="mt-5 block rounded bg-blue-600 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-blue-700"
+                className="mt-3 block text-center text-sm text-teal-700 hover:underline"
               >
                 Open bed {piece.bed.workOrderNum}
               </Link>

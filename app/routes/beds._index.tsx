@@ -9,6 +9,7 @@ import { useMemo, useState } from "react";
 
 import { AppShell } from "~/components/app-shell";
 import { bedCapacity, fillPercent } from "~/lib/bed-capacity";
+import { isReprintJob } from "~/lib/reprint";
 import {
   BedCreationError,
   createBedFromSelection,
@@ -236,6 +237,11 @@ export default function BedMaker() {
                       </td>
                       <td className="px-3 py-2.5 font-medium text-gray-900">
                         {j.orderName}
+                        {isReprintJob(j.lineItemKey) ? (
+                          <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">
+                            reprint
+                          </span>
+                        ) : null}
                       </td>
                       <td className="px-3 py-2.5 font-mono text-gray-500">
                         {j.sku || "—"}
