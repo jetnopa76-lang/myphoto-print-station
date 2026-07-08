@@ -3,8 +3,18 @@ import PDFDocument from "pdfkit";
 import * as QRCode from "qrcode";
 import invariant from "tiny-invariant";
 
-import { requestOrigin, requireBridgeToken } from "~/lib/bridge.server";
+import { requestOrigin } from "~/lib/bridge.server";
 import { bedPiecesForOrder, getBed } from "~/models/bed.server";
+import { requireStaff } from "~/session.server";
+
+// The bridge (token) or a logged-in staffer (for preview) may fetch a traveler.
+async function allowBridgeOrStaff(request: Request): Promise<void> {
+  const expected = process.env.PRINT_BRIDGE_TOKEN;
+  const auth = request.headers.get("Authorization") ?? "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (expected && token === expected) return;
+  await requireStaff(request);
+}
 
 function pdfToBuffer(doc: PDFKit.PDFDocument): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -21,7 +31,7 @@ function pdfToBuffer(doc: PDFKit.PDFDocument): Promise<Buffer> {
  * URL: /station/traveler/:bedId?order=<shopifyOrderId>
  */
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
-  requireBridgeToken(request);
+  await allowBridgeOrStaff(request);
   invariant(params.bedId, "bedId is required");
   const shopifyOrderId = new URL(request.url).searchParams.get("order");
   if (!shopifyOrderId) throw new Response("order is required", { status: 400 });
