@@ -8,6 +8,7 @@ import { Form, Link, useActionData, useLoaderData } from "@remix-run/react";
 import invariant from "tiny-invariant";
 
 import { AppShell } from "~/components/app-shell";
+import { extractPieceCode } from "~/lib/scan";
 import {
   getOrderConsolidation,
   markOrderShipped,
@@ -33,8 +34,9 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const intent = formData.get("intent");
 
   if (intent === "pack") {
-    const qrCode = String(formData.get("qrCode") ?? "").trim();
-    if (!qrCode) return json({ error: "Scan or enter a code." });
+    const raw = String(formData.get("qrCode") ?? "").trim();
+    if (!raw) return json({ error: "Scan or enter a code." });
+    const qrCode = extractPieceCode(raw);
     try {
       await markPiecePacked(qrCode, staff.id);
       return json({ ok: true, message: `Packed ${qrCode}.` });

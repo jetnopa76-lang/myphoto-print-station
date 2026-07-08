@@ -1,7 +1,49 @@
-import { Form, Link, NavLink } from "@remix-run/react";
-import type { ReactNode } from "react";
+import { Form, Link, NavLink, useNavigate } from "@remix-run/react";
+import { useEffect, type ReactNode } from "react";
+
+import { scanPath } from "~/lib/scan";
 
 type Tab = "maker" | "viewer" | "lookup" | "reprint" | "shipping";
+
+/**
+ * Route on QR/barcode scans from a USB (keyboard-wedge) scanner. Scanners
+ * "type" the code fast and end with Enter. When the scan matches one of our
+ * codes and no input is focused, we navigate to it. If a field is focused
+ * (e.g. a pack/QC box), we leave the scan to that field.
+ */
+function useScanNavigation() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    let buffer = "";
+    let last = 0;
+    function onKey(e: KeyboardEvent) {
+      const el = document.activeElement as HTMLElement | null;
+      const typing =
+        !!el &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.isContentEditable);
+      const now = Date.now();
+      if (now - last > 120) buffer = ""; // slow keystrokes = a human typing
+      last = now;
+
+      if (e.key === "Enter") {
+        const scanned = buffer;
+        buffer = "";
+        if (typing) return; // focused field handles the scan
+        const path = scanPath(scanned);
+        if (path) {
+          e.preventDefault();
+          navigate(path);
+        }
+        return;
+      }
+      if (e.key.length === 1) buffer += e.key;
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [navigate]);
+}
 
 const TABS: { id: Tab; label: string; to: string }[] = [
   { id: "maker", label: "Bed Maker", to: "/beds" },
@@ -20,6 +62,7 @@ export function AppShell({
   staffName?: string;
   children: ReactNode;
 }) {
+  useScanNavigation();
   return (
     <div className="min-h-full bg-gray-50">
       <header className="border-b border-gray-200 bg-white">
