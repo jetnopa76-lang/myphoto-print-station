@@ -34,66 +34,45 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const bed = await getBed(params.bedId);
   if (!bed) throw new Response("Bed not found", { status: 404 });
 
-  // Ensure pieces exist so the manifest always has QR codes.
+  // Ensure pieces exist so the piece count is accurate.
   await generatePiecesForBed(bed.id);
   const pieces = await piecesForBed(bed.id);
-
   const origin = requestOrigin(request);
 
-  // Pre-render every QR code to a PNG buffer.
-  const qrBuffers = await Promise.all(
-    pieces.map((piece) =>
-      QRCode.toBuffer(`${origin}/scan/${piece.qrCode}`, {
-        type: "png",
-        width: 220,
-        margin: 1,
-      }),
-    ),
-  );
+  // A single work-order QR. Scanning it at the print station queues the
+  // piece-label strip (Zebra) and the traveler (Star).
+  const scanUrl = `${origin}/station/scan/${bed.id}`;
+  const qr = await QRCode.toBuffer(scanUrl, {
+    type: "png",
+    width: 600,
+    margin: 1,
+  });
 
   const doc = new PDFDocument({ size: "LETTER", margin: 40 });
   const done = pdfToBuffer(doc);
+  const pageW = 612;
 
-  doc.fontSize(20).text(`Bed manifest — ${bed.workOrderNum}`);
-  doc
-    .fontSize(11)
-    .fillColor("#555555")
-    .text(`${bed.label}   ·   ${pieces.length} pieces`)
-    .text(`Generated ${new Date().toLocaleString()}`);
-  doc.moveDown(1);
-  doc.fillColor("#000000");
-
-  const qrSize = 90;
-  const rowHeight = 110;
-  const textX = 40 + qrSize + 16;
-  let y = doc.y;
-
-  pieces.forEach((piece, i) => {
-    if (y + rowHeight > doc.page.height - 40) {
-      doc.addPage();
-      y = 40;
-    }
-
-    doc.image(qrBuffers[i], 40, y, { width: qrSize, height: qrSize });
-
-    doc
-      .fontSize(13)
-      .fillColor("#000000")
-      .text(`${piece.job.orderName} — ${piece.job.productTitle}`, textX, y + 6, {
-        width: 612 - textX - 40,
-      });
-    doc
-      .fontSize(10)
-      .fillColor("#555555")
-      .text(
-        `${piece.job.size}  ·  ${piece.job.material}  ·  piece ${piece.pieceIndex} of ${piece.job.quantity}`,
-        textX,
-        y + 30,
-      );
-    doc.fillColor("#888888").text(piece.qrCode, textX, y + 46);
-
-    y += rowHeight;
+  doc.fontSize(28).fillColor("#000000").text(bed.workOrderNum, {
+    align: "center",
   });
+  doc
+    .fontSize(14)
+    .fillColor("#555555")
+    .text(`${bed.label}   ·   ${pieces.length} pieces`, { align: "center" });
+  doc.moveDown(1.5);
+
+  const qrSize = 300;
+  doc.image(qr, (pageW - qrSize) / 2, doc.y, { width: qrSize, height: qrSize });
+  doc.y += qrSize + 20;
+
+  doc
+    .fontSize(13)
+    .fillColor("#000000")
+    .text("Scan to print piece labels + traveler", { align: "center" });
+  doc
+    .fontSize(9)
+    .fillColor("#999999")
+    .text(`Generated ${new Date().toLocaleString()}`, { align: "center" });
 
   doc.end();
   const buffer = await done;
