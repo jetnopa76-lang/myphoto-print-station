@@ -145,7 +145,7 @@ export default function BedDetail() {
                 disabled={busy}
                 className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-300"
               >
-                {busySend ? "Sending…" : "Send to Bedster"}
+                {busySend ? "Sending…" : "Re-send to Bedster"}
               </button>
             </Form>
           ) : null}

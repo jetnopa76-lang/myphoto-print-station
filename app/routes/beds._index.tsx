@@ -9,15 +9,27 @@ import { useMemo, useState } from "react";
 
 import { AppShell } from "~/components/app-shell";
 import { capacityKey, defaultCapacity, fillPercent } from "~/lib/bed-capacity";
-import { getCapacityMap } from "~/lib/bedster.server";
+import { getCapacityMap, sendBedToBedster } from "~/lib/bedster.server";
 import { isReprintJob } from "~/lib/reprint";
 import {
   BedCreationError,
   createBedFromSelection,
+  markBedSent,
   groupPendingJobs,
 } from "~/models/bed.server";
 import { generatePiecesForBed } from "~/models/piece.server";
 import { requireStaff } from "~/session.server";
+
+function callbackUrl(request: Request): string {
+  const host =
+    request.headers.get("X-Forwarded-Host") ??
+    request.headers.get("host") ??
+    "localhost:3000";
+  const proto =
+    request.headers.get("X-Forwarded-Proto") ??
+    (host.includes("localhost") ? "http" : "https");
+  return `${proto}://${host}/webhooks/bedster`;
+}
 
 export const meta: MetaFunction = () => [
   { title: "Bed Maker — Print Station" },
@@ -42,6 +54,20 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const bed = await createBedFromSelection(jobIds, staff.id);
     // Generate QR pieces right away so the ticket is ready to download.
     await generatePiecesForBed(bed.id);
+
+    // Creating a bed also sends it to Bedster for imposition. Non-fatal:
+    // if Bedster isn't reachable, the bed is still created (stays "open")
+    // and can be re-sent from the bed page.
+    try {
+      await sendBedToBedster(bed, callbackUrl(request));
+      await markBedSent(bed.id);
+    } catch (sendErr) {
+      console.warn(
+        "Auto-send to Bedster failed; bed left open:",
+        sendErr instanceof Error ? sendErr.message : sendErr,
+      );
+    }
+
     return redirect(`/beds/${bed.id}`);
   } catch (error) {
     if (error instanceof BedCreationError) {
@@ -376,7 +402,7 @@ export default function BedMaker() {
               disabled={!canCreate}
               className="rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:bg-gray-300"
             >
-              Create bed ({selectedJobIds.length})
+              Create bed &amp; send ({selectedJobIds.length})
             </button>
           </Form>
         </div>
