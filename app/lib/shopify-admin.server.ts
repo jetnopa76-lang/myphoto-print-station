@@ -52,6 +52,69 @@ interface MetafieldsResponse {
   metafields?: { namespace: string; key: string; value: string }[];
 }
 
+/** The product tag that marks a product as a print (MyPhoto) product. */
+export const PRINT_PRODUCT_TAG = "myphoto";
+
+export interface ProductInfo {
+  isPrintProduct: boolean; // product carries the myphoto tag
+  material: string | null;
+}
+
+/**
+ * Look up a product via the Admin API and return whether it's a print
+ * product (tagged `myphoto`) plus its material. One request covers both.
+ * Returns null if the Admin API isn't configured or the fetch fails.
+ */
+export async function fetchProductInfo(
+  productId: string | number,
+): Promise<ProductInfo | null> {
+  const cfg = readConfig();
+  if (!cfg) return null;
+
+  const base = `https://${cfg.domain}/admin/api/${cfg.version}`;
+  const headers = {
+    "X-Shopify-Access-Token": cfg.token,
+    "Content-Type": "application/json",
+  };
+
+  try {
+    let material: string | null = null;
+    if (cfg.metafield && cfg.metafield.includes(".")) {
+      const [ns, key] = cfg.metafield.split(".");
+      const res = await fetch(`${base}/products/${productId}/metafields.json`, {
+        headers,
+      });
+      if (res.ok) {
+        const data = (await res.json()) as MetafieldsResponse;
+        const mf = data.metafields?.find(
+          (m) => m.namespace === ns && m.key === key,
+        );
+        if (mf?.value) material = String(mf.value).trim();
+      }
+    }
+
+    const res = await fetch(`${base}/products/${productId}.json`, { headers });
+    if (!res.ok) return null;
+    const data = (await res.json()) as ProductResponse;
+    const product = data.product ?? {};
+
+    const tags = (product.tags ?? "")
+      .split(",")
+      .map((t) => t.trim().toLowerCase());
+    const isPrintProduct = tags.includes(PRINT_PRODUCT_TAG);
+
+    if (!material) {
+      material =
+        matchMaterial(product.tags ?? "") ??
+        matchMaterial(product.product_type ?? "");
+    }
+
+    return { isPrintProduct, material };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Resolve a product's material via the Admin API. Prefers a configured
  * metafield (SHOPIFY_MATERIAL_METAFIELD="namespace.key"); otherwise matches

@@ -88,6 +88,20 @@ export function getLineItemProperty(
 }
 
 /**
+ * The customer's uploaded photo URL, if the line item carries one (the photo
+ * editor stores it as a line-item property). Presence of an image URL is a
+ * strong signal that the line item is a print product, and it's the image we
+ * hand to Bedster for imposition.
+ */
+export function lineItemImageUrl(item: ShopifyLineItem): string | null {
+  for (const p of item.properties ?? []) {
+    const value = typeof p?.value === "string" ? p.value : "";
+    if (/^https?:\/\/\S+/i.test(value)) return value;
+  }
+  return null;
+}
+
+/**
  * Parse a print size like "5x7" out of a variant title or property.
  * Matches patterns like "5x7", "5 x 7", "8X10", "11×14".
  * Returns a normalized "WxH" string, or null if none found.
