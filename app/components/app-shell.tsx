@@ -1,5 +1,5 @@
 import { Form, Link, NavLink, useNavigate } from "@remix-run/react";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { scanPath } from "~/lib/scan";
 
@@ -13,6 +13,7 @@ type Tab = "maker" | "viewer" | "lookup" | "reprint" | "shipping";
  */
 function useScanNavigation() {
   const navigate = useNavigate();
+  const [debug, setDebug] = useState<string | null>(null);
   useEffect(() => {
     let buffer = "";
     let last = 0;
@@ -24,14 +25,19 @@ function useScanNavigation() {
           el.tagName === "TEXTAREA" ||
           el.isContentEditable);
       const now = Date.now();
-      if (now - last > 120) buffer = ""; // slow keystrokes = a human typing
+      if (now - last > 300) buffer = ""; // slow keystrokes = a human typing
       last = now;
 
       if (e.key === "Enter") {
         const scanned = buffer;
         buffer = "";
-        if (typing) return; // focused field handles the scan
         const path = scanPath(scanned);
+        setDebug(
+          `captured "${scanned.slice(0, 60)}" → ${path ?? "no match"}${
+            typing ? " (field focused)" : ""
+          }`,
+        );
+        if (typing) return; // focused field handles the scan
         if (path) {
           e.preventDefault();
           navigate(path);
@@ -43,6 +49,7 @@ function useScanNavigation() {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [navigate]);
+  return debug;
 }
 
 const TABS: { id: Tab; label: string; to: string }[] = [
@@ -62,9 +69,14 @@ export function AppShell({
   staffName?: string;
   children: ReactNode;
 }) {
-  useScanNavigation();
+  const scanDebug = useScanNavigation();
   return (
     <div className="min-h-full bg-gray-50">
+      {scanDebug ? (
+        <div className="fixed bottom-3 left-3 z-50 max-w-md rounded-md bg-gray-900/90 px-3 py-2 font-mono text-xs text-white">
+          scan: {scanDebug}
+        </div>
+      ) : null}
       <header className="border-b border-gray-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
           <Link to="/beds" className="text-lg font-semibold text-gray-900">
