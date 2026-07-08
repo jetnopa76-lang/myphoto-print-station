@@ -20,6 +20,12 @@ if (!fs.existsSync(CONFIG_PATH)) {
 const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
 const pollMs = (cfg.pollSeconds || 4) * 1000;
 
+// Be forgiving about the URL: trim it and add https:// if a scheme is missing.
+let baseUrl = String(cfg.printStationUrl || "").trim();
+if (baseUrl && !/^https?:\/\//i.test(baseUrl)) baseUrl = "https://" + baseUrl;
+baseUrl = baseUrl.replace(/\/$/, "");
+const queueUrl = baseUrl + "/api/print-queue";
+
 function log(...a) {
   console.log(new Date().toLocaleTimeString(), ...a);
 }
@@ -76,10 +82,9 @@ async function printTraveler(travelerUrl) {
 async function tick() {
   let data;
   try {
-    const res = await fetch(
-      cfg.printStationUrl.replace(/\/$/, "") + "/api/print-queue",
-      { headers: { Authorization: `Bearer ${cfg.token}` } },
-    );
+    const res = await fetch(queueUrl, {
+      headers: { Authorization: `Bearer ${cfg.token}` },
+    });
     if (!res.ok) {
       log("queue poll failed:", res.status);
       return;
@@ -98,17 +103,14 @@ async function tick() {
         await printTraveler(order.travelerUrl);
         log(`  ✓ ${order.orderName}: ${order.pieceCount} label(s) + traveler`);
       }
-      await fetch(
-        cfg.printStationUrl.replace(/\/$/, "") + "/api/print-queue",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${cfg.token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ bedId: bed.bedId }),
+      await fetch(queueUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${cfg.token}`,
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify({ bedId: bed.bedId }),
+      });
       log(`  done ${bed.workOrderNum}`);
     } catch (e) {
       log(`  ✗ ${bed.workOrderNum} failed:`, e.message, "(will retry next poll)");
