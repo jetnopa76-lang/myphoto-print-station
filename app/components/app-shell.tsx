@@ -1,13 +1,14 @@
 import { Form, Link, NavLink } from "@remix-run/react";
 import type { ReactNode } from "react";
 
-type Tab = "maker" | "viewer" | "lookup" | "reprint";
+type Tab = "maker" | "viewer" | "lookup" | "reprint" | "shipping";
 
 const TABS: { id: Tab; label: string; to: string }[] = [
   { id: "maker", label: "Bed Maker", to: "/beds" },
   { id: "viewer", label: "Bed Viewer", to: "/beds/viewer" },
   { id: "lookup", label: "WO Lookup", to: "/lookup" },
   { id: "reprint", label: "Reprint", to: "/reprint" },
+  { id: "shipping", label: "Shipping", to: "/shipping" },
 ];
 
 export function AppShell({

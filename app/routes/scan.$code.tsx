@@ -7,6 +7,7 @@ import { json } from "@remix-run/node";
 import { Form, Link, useActionData, useLoaderData } from "@remix-run/react";
 import invariant from "tiny-invariant";
 
+import { markPiecePacked, orderPieceSummary } from "~/models/order.server";
 import { getPieceByQr } from "~/models/piece.server";
 import { recordQc, requestReprint } from "~/models/qc.server";
 import { requireStaff } from "~/session.server";
@@ -17,7 +18,10 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   await requireStaff(request);
   invariant(params.code, "code is required");
   const piece = await getPieceByQr(params.code);
-  return json({ code: params.code, piece });
+  const order = piece
+    ? await orderPieceSummary(piece.job.orderName)
+    : null;
+  return json({ code: params.code, piece, order });
 };
 
 export const action = async ({ request, params }: ActionFunctionArgs) => {
@@ -41,6 +45,10 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       message: `Reprint queued as a new work order for ${reprint.orderName}.`,
     });
   }
+  if (intent === "pack") {
+    await markPiecePacked(params.code, staff.id);
+    return json({ ok: true, message: "Marked packed." });
+  }
   return json({ ok: true });
 };
 
@@ -54,9 +62,10 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 export default function Scan() {
-  const { code, piece } = useLoaderData<typeof loader>();
+  const { code, piece, order } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const message = (actionData as { message?: string } | undefined)?.message;
+  const multi = order ? order.total > 1 : false;
 
   return (
     <div className="min-h-full bg-gray-50">
@@ -141,10 +150,48 @@ export default function Scan() {
               </Form>
             ) : null}
 
+            {/* Consolidation guidance for the packer */}
+            {order ? (
+              multi ? (
+                <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                  <div className="font-medium">
+                    Part of {piece.job.orderName}
+                  </div>
+                  <div className="mt-0.5">
+                    {order.total} pieces in this order · {order.packed} packed.
+                    Hold for the rest.
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-3 text-sm font-medium text-green-800">
+                  Single piece — ready to pack.
+                </div>
+              )
+            ) : null}
+
+            {piece.status !== "packed" ? (
+              <Form method="post" className="mt-3">
+                <input type="hidden" name="intent" value="pack" />
+                <button
+                  type="submit"
+                  className="w-full rounded-lg bg-teal-600 px-4 py-3 text-sm font-medium text-white hover:bg-teal-700"
+                >
+                  Mark packed
+                </button>
+              </Form>
+            ) : null}
+
+            <Link
+              to={`/pack/${encodeURIComponent(piece.job.orderName)}`}
+              className="mt-3 block text-center text-sm text-teal-700 hover:underline"
+            >
+              Open order {piece.job.orderName}
+            </Link>
+
             {piece.bed ? (
               <Link
                 to={`/beds/${piece.bed.id}`}
-                className="mt-3 block text-center text-sm text-teal-700 hover:underline"
+                className="mt-2 block text-center text-sm text-gray-500 hover:underline"
               >
                 Open bed {piece.bed.workOrderNum}
               </Link>

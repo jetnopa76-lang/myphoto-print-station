@@ -34,7 +34,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const job = pieces[0].job;
   const origin = requestOrigin(request);
   const orderQr = await QRCode.toBuffer(
-    `${origin}/pack/${encodeURIComponent(shopifyOrderId)}`,
+    `${origin}/pack/${encodeURIComponent(job.orderName)}`,
     { type: "png", width: 300, margin: 1 },
   );
 
