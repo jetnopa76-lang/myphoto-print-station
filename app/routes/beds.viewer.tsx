@@ -26,6 +26,11 @@ const STATUS: Record<string, { label: string; cls: string }> = {
   sent_to_bedster: { label: "At Bedster", cls: "bg-amber-100 text-amber-800" },
   imposed: { label: "Ready to claim", cls: "bg-green-100 text-green-800" },
   printing: { label: "Printing", cls: "bg-blue-100 text-blue-800" },
+  labels_requested: {
+    label: "Labels queued",
+    cls: "bg-purple-100 text-purple-800",
+  },
+  labeled: { label: "Labeled", cls: "bg-teal-100 text-teal-800" },
 };
 
 export default function BedViewer() {

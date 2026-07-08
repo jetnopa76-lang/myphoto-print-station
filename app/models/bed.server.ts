@@ -225,13 +225,60 @@ export async function getBed(id: string) {
 export async function listActiveBeds() {
   return prisma.bed.findMany({
     where: {
-      status: { in: ["open", "sent_to_bedster", "imposed", "printing"] },
+      status: {
+        in: [
+          "open",
+          "sent_to_bedster",
+          "imposed",
+          "printing",
+          "labels_requested",
+          "labeled",
+        ],
+      },
     },
     orderBy: { createdAt: "desc" },
     include: {
       _count: { select: { items: true, pieces: true } },
       items: { select: { quantity: true } },
     },
+  });
+}
+
+// ─────────────────────────────────────────────────────
+// Label printing queue (no separate table — the bed status is the signal).
+// Scanning the work-order QR sets "labels_requested"; the local print bridge
+// polls for those, prints, and acks back to "labeled".
+// ─────────────────────────────────────────────────────
+
+export async function markBedLabelsRequested(bedId: string): Promise<Bed> {
+  return prisma.bed.update({
+    where: { id: bedId },
+    data: { status: "labels_requested" },
+  });
+}
+
+export async function markBedLabeled(bedId: string): Promise<Bed> {
+  return prisma.bed.update({
+    where: { id: bedId },
+    data: { status: "labeled" },
+  });
+}
+
+/** Beds whose work-order QR was scanned and are waiting for the bridge. */
+export async function listBedsNeedingLabels() {
+  return prisma.bed.findMany({
+    where: { status: "labels_requested" },
+    orderBy: { createdAt: "asc" },
+    include: { pieces: { include: { job: true } } },
+  });
+}
+
+/** A bed's pieces for one order, with job details (for labels + traveler). */
+export async function bedPiecesForOrder(bedId: string, shopifyOrderId: string) {
+  return prisma.printPiece.findMany({
+    where: { bedId, job: { shopifyOrderId } },
+    orderBy: [{ jobId: "asc" }, { pieceIndex: "asc" }],
+    include: { job: true },
   });
 }
 
