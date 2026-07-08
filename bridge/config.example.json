@@ -1,0 +1,8 @@
+{
+  "printStationUrl": "https://myphoto-print-station.fly.dev",
+  "token": "PASTE_YOUR_PRINT_BRIDGE_TOKEN",
+  "zebraPrinter": "ZDesigner GK420d",
+  "starPrinter": "Star TSP100 Cutter (TSP143)",
+  "sumatraPath": "C:\\Tools\\SumatraPDF.exe",
+  "pollSeconds": 4
+}
