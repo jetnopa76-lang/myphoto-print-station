@@ -200,6 +200,12 @@ export default function BedDetail() {
           {prepared ? (
             <>
               <Link
+                to={`/station/scan/${bed.id}`}
+                className="rounded bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700"
+              >
+                Print at station
+              </Link>
+              <Link
                 to={`/station/preview/${bed.id}`}
                 className="rounded border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
               >
