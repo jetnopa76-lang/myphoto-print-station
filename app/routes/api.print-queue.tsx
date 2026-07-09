@@ -8,6 +8,7 @@ import {
   listBedsNeedingLabels,
   markBedLabeled,
 } from "~/models/bed.server";
+import { getOrderScope } from "~/models/order.server";
 
 /**
  * Print bridge queue.
@@ -23,36 +24,54 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const origin = requestOrigin(request);
   const beds = await listBedsNeedingLabels();
 
-  const queue = beds.map((bed) => {
-    // Group this bed's pieces by order.
-    const byOrder = new Map<string, typeof bed.pieces>();
-    for (const piece of bed.pieces) {
-      const key = piece.job.shopifyOrderId;
-      const list = byOrder.get(key) ?? [];
-      list.push(piece);
-      byOrder.set(key, list);
-    }
+  // Cache order-level totals so we compute each order's scope only once.
+  const scopeCache = new Map<string, number>();
+  async function orderTotalFor(orderName: string): Promise<number> {
+    const cached = scopeCache.get(orderName);
+    if (cached !== undefined) return cached;
+    const scope = await getOrderScope(orderName);
+    scopeCache.set(orderName, scope.totalPieces);
+    return scope.totalPieces;
+  }
 
-    const orders = [...byOrder.entries()].map(([shopifyOrderId, pieces]) => {
-      const labelPieces: LabelPiece[] = pieces.map((p) => ({
-        qrCode: p.qrCode,
-        orderName: p.job.orderName,
-        size: p.job.size,
-        material: p.job.material,
-        pieceIndex: p.pieceIndex,
-        pieceCount: p.job.quantity,
-      }));
-      return {
-        orderName: pieces[0].job.orderName,
-        shopifyOrderId,
-        pieceCount: pieces.length,
-        zebraZpl: orderLabelsZpl(labelPieces, origin),
-        travelerUrl: `${origin}/station/traveler/${bed.id}?order=${encodeURIComponent(shopifyOrderId)}`,
-      };
-    });
+  const queue = await Promise.all(
+    beds.map(async (bed) => {
+      // Group this bed's pieces by order.
+      const byOrder = new Map<string, typeof bed.pieces>();
+      for (const piece of bed.pieces) {
+        const key = piece.job.shopifyOrderId;
+        const list = byOrder.get(key) ?? [];
+        list.push(piece);
+        byOrder.set(key, list);
+      }
 
-    return { bedId: bed.id, workOrderNum: bed.workOrderNum, orders };
-  });
+      const orders = await Promise.all(
+        [...byOrder.entries()].map(async ([shopifyOrderId, pieces]) => {
+          const orderName = pieces[0].job.orderName;
+          const orderTotal = await orderTotalFor(orderName);
+          const labelPieces: LabelPiece[] = pieces.map((p) => ({
+            qrCode: p.qrCode,
+            orderName: p.job.orderName,
+            size: p.job.size,
+            material: p.job.material,
+            pieceIndex: p.pieceIndex,
+            pieceCount: p.job.quantity,
+            orderTotal,
+          }));
+          return {
+            orderName,
+            shopifyOrderId,
+            pieceCount: pieces.length,
+            orderTotal,
+            zebraZpl: orderLabelsZpl(labelPieces, origin),
+            travelerUrl: `${origin}/station/traveler/${bed.id}?order=${encodeURIComponent(shopifyOrderId)}`,
+          };
+        }),
+      );
+
+      return { bedId: bed.id, workOrderNum: bed.workOrderNum, orders };
+    }),
+  );
 
   return json({ beds: queue });
 };

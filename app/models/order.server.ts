@@ -26,6 +26,55 @@ export interface OrderConsolidation {
   allPacked: boolean;
 }
 
+export interface OrderScope {
+  orderName: string;
+  /** Total pieces the customer ordered, across every size/line item. */
+  totalPieces: number;
+  /** Number of distinct line items (sizes) in the order. */
+  lineCount: number;
+  /** Per-size breakdown, e.g. [{ size: "4x4", material: "Acrylic", quantity: 1 }]. */
+  breakdown: { size: string; material: string; quantity: number }[];
+  /** True when the order is more than one physical piece. */
+  multi: boolean;
+}
+
+/**
+ * The full "shape" of an order, computed from its line items (PrintJobs) — not
+ * from pieces. Pieces only exist once a bed is prepared/printed, so a
+ * multi-size order would look single-piece until every bed is printed. Line
+ * items exist at intake, so this is correct immediately. Reprint jobs (cloned
+ * with a "-reprint-" line key) are excluded so they don't inflate the count.
+ */
+export async function getOrderScope(orderName: string): Promise<OrderScope> {
+  const jobs = await prisma.printJob.findMany({
+    where: { orderName, NOT: { lineItemKey: { contains: "-reprint-" } } },
+    select: { size: true, material: true, quantity: true },
+    orderBy: [{ size: "asc" }, { material: "asc" }],
+  });
+
+  const byKind = new Map<
+    string,
+    { size: string; material: string; quantity: number }
+  >();
+  let totalPieces = 0;
+  for (const j of jobs) {
+    totalPieces += j.quantity;
+    const key = `${j.size}|||${j.material}`;
+    const entry =
+      byKind.get(key) ?? { size: j.size, material: j.material, quantity: 0 };
+    entry.quantity += j.quantity;
+    byKind.set(key, entry);
+  }
+
+  return {
+    orderName,
+    totalPieces,
+    lineCount: jobs.length,
+    breakdown: [...byKind.values()],
+    multi: totalPieces > 1,
+  };
+}
+
 /** Quick counts for an order (used on the piece-scan screen). */
 export async function orderPieceSummary(
   orderName: string,

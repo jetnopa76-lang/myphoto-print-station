@@ -13,6 +13,8 @@ export interface LabelPiece {
   material: string;
   pieceIndex: number;
   pieceCount: number;
+  /** Total pieces in the whole order (across all sizes/beds). */
+  orderTotal: number;
 }
 
 function escapeZpl(text: string): string {
@@ -26,7 +28,9 @@ export function pieceLabelZpl(piece: LabelPiece, origin: string): string {
   const order = escapeZpl(piece.orderName);
   const line2 = escapeZpl(`${piece.size} ${piece.material}`);
   const line3 = `Pc ${piece.pieceIndex}/${piece.pieceCount}`;
-  return [
+  const multi = piece.orderTotal > 1;
+
+  const lines = [
     "^XA",
     "^CI28", // UTF-8
     `^PW${LABEL_W}`,
@@ -36,12 +40,24 @@ export function pieceLabelZpl(piece: LabelPiece, origin: string): string {
     "^FO16,40^BQN,2,5",
     `^FDLA,${url}^FS`,
     // Text block on the right.
-    `^FO200,30^A0N,30,30^FD${order}^FS`,
-    `^FO200,75^A0N,24,24^FD${line2}^FS`,
-    `^FO200,115^A0N,22,22^FD${line3}^FS`,
-    `^FO200,150^A0N,18,18^FD${escapeZpl(piece.qrCode)}^FS`,
-    "^XZ",
-  ].join("\n");
+    `^FO200,26^A0N,28,28^FD${order}^FS`,
+    `^FO200,64^A0N,22,22^FD${line2}^FS`,
+    `^FO200,98^A0N,20,20^FD${line3}^FS`,
+  ];
+
+  if (multi) {
+    // Reverse-video banner across the bottom so whoever tapes the label knows
+    // this piece belongs to a multi-piece order and must be held for packing.
+    lines.push(
+      `^FO8,150^GB390,42,42^FS`,
+      `^FO24,158^A0N,26,26^FR^FDMULTI  ${piece.orderTotal} PCS^FS`,
+    );
+  } else {
+    lines.push(`^FO200,132^A0N,18,18^FD${escapeZpl(piece.qrCode)}^FS`);
+  }
+
+  lines.push("^XZ");
+  return lines.join("\n");
 }
 
 /** ZPL for a batch of piece labels (one order's pieces on a bed). */

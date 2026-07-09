@@ -8,6 +8,7 @@ import { requestOrigin } from "~/lib/bridge.server";
 import type { LabelPiece } from "~/lib/zpl.server";
 import { orderLabelsZpl, pieceLabelZpl } from "~/lib/zpl.server";
 import { getBed } from "~/models/bed.server";
+import { getOrderScope } from "~/models/order.server";
 import { generatePiecesForBed, piecesForBed } from "~/models/piece.server";
 import { requireStaff } from "~/session.server";
 
@@ -33,23 +34,28 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     byOrder.set(key, list);
   }
 
-  const orders = [...byOrder.entries()].map(([shopifyOrderId, ps]) => {
-    const labelPieces: LabelPiece[] = ps.map((p) => ({
-      qrCode: p.qrCode,
-      orderName: p.job.orderName,
-      size: p.job.size,
-      material: p.job.material,
-      pieceIndex: p.pieceIndex,
-      pieceCount: p.job.quantity,
-    }));
-    return {
-      orderName: ps[0].job.orderName,
-      pieceCount: ps.length,
-      firstLabelZpl: pieceLabelZpl(labelPieces[0], origin),
-      allZpl: orderLabelsZpl(labelPieces, origin),
-      travelerUrl: `${origin}/station/traveler/${bed.id}?order=${encodeURIComponent(shopifyOrderId)}`,
-    };
-  });
+  const orders = await Promise.all(
+    [...byOrder.entries()].map(async ([shopifyOrderId, ps]) => {
+      const orderName = ps[0].job.orderName;
+      const scope = await getOrderScope(orderName);
+      const labelPieces: LabelPiece[] = ps.map((p) => ({
+        qrCode: p.qrCode,
+        orderName: p.job.orderName,
+        size: p.job.size,
+        material: p.job.material,
+        pieceIndex: p.pieceIndex,
+        pieceCount: p.job.quantity,
+        orderTotal: scope.totalPieces,
+      }));
+      return {
+        orderName,
+        pieceCount: ps.length,
+        firstLabelZpl: pieceLabelZpl(labelPieces[0], origin),
+        allZpl: orderLabelsZpl(labelPieces, origin),
+        travelerUrl: `${origin}/station/traveler/${bed.id}?order=${encodeURIComponent(shopifyOrderId)}`,
+      };
+    }),
+  );
 
   return json({
     staffName: staff.name,

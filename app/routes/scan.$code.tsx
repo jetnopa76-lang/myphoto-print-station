@@ -7,7 +7,11 @@ import { json } from "@remix-run/node";
 import { Form, Link, useActionData, useLoaderData } from "@remix-run/react";
 import invariant from "tiny-invariant";
 
-import { markPiecePacked, orderPieceSummary } from "~/models/order.server";
+import {
+  getOrderScope,
+  markPiecePacked,
+  orderPieceSummary,
+} from "~/models/order.server";
 import { getPieceByQr } from "~/models/piece.server";
 import { recordQc, requestReprint } from "~/models/qc.server";
 import { requireStaff } from "~/session.server";
@@ -18,10 +22,13 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   await requireStaff(request);
   invariant(params.code, "code is required");
   const piece = await getPieceByQr(params.code);
-  const order = piece
-    ? await orderPieceSummary(piece.job.orderName)
-    : null;
-  return json({ code: params.code, piece, order });
+  const [order, scope] = piece
+    ? await Promise.all([
+        orderPieceSummary(piece.job.orderName),
+        getOrderScope(piece.job.orderName),
+      ])
+    : [null, null];
+  return json({ code: params.code, piece, order, scope });
 };
 
 export const action = async ({ request, params }: ActionFunctionArgs) => {
@@ -62,10 +69,10 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 export default function Scan() {
-  const { code, piece, order } = useLoaderData<typeof loader>();
+  const { code, piece, order, scope } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const message = (actionData as { message?: string } | undefined)?.message;
-  const multi = order ? order.total > 1 : false;
+  const multi = scope ? scope.multi : false;
 
   return (
     <div className="min-h-full bg-gray-50">
@@ -151,15 +158,22 @@ export default function Scan() {
             ) : null}
 
             {/* Consolidation guidance for the packer */}
-            {order ? (
+            {scope ? (
               multi ? (
-                <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                  <div className="font-medium">
-                    Part of {piece.job.orderName}
+                <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                  <div className="font-semibold">
+                    ⚑ Multi-piece order — {scope.totalPieces} pieces
                   </div>
-                  <div className="mt-0.5">
-                    {order.total} pieces in this order · {order.packed} packed.
-                    Hold for the rest.
+                  <div className="mt-1 space-y-0.5 text-amber-800">
+                    {scope.breakdown.map((b) => (
+                      <div key={`${b.size}-${b.material}`}>
+                        {b.size} {b.material} ×{b.quantity}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-1.5 font-medium">
+                    {order ? `${order.packed} packed so far. ` : ""}Hold for the
+                    rest before shipping.
                   </div>
                 </div>
               ) : (
