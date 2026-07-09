@@ -30,7 +30,7 @@ function log(...a) {
   console.log(new Date().toLocaleTimeString(), ...a);
 }
 
-// Safety net: never reprint the same bed within this window, even if the
+// Safety net: never reprint the same order within this window, even if the
 // "mark done" call fails. Prevents runaway printing.
 const REPRINT_COOLDOWN_MS = 60000;
 const recentlyPrinted = new Map();
@@ -100,30 +100,31 @@ async function tick() {
     return;
   }
 
-  for (const bed of data.beds || []) {
-    const printedAt = recentlyPrinted.get(bed.bedId);
+  // Each entry is one order the worker approved at the bed.
+  for (const job of data.jobs || []) {
+    const key = `${job.bedId}:${job.shopifyOrderId}`;
+    const printedAt = recentlyPrinted.get(key);
     if (printedAt && Date.now() - printedAt < REPRINT_COOLDOWN_MS) {
-      continue; // already printed this bed moments ago — skip to avoid runaway
+      continue; // already printed this order moments ago — skip to avoid runaway
     }
-    recentlyPrinted.set(bed.bedId, Date.now());
+    recentlyPrinted.set(key, Date.now());
 
-    log(`Printing ${bed.workOrderNum} — ${bed.orders.length} order(s)`);
-    for (const order of bed.orders) {
-      try {
-        await printZebra(order.zebraZpl);
-        log(`  ✓ ${order.orderName}: ${order.pieceCount} label(s)`);
-      } catch (e) {
-        log(`  ✗ ${order.orderName} labels failed:`, e.message);
-      }
-      try {
-        await printTraveler(order.travelerUrl);
-        log(`  ✓ ${order.orderName}: traveler`);
-      } catch (e) {
-        log(`  ✗ ${order.orderName} traveler failed:`, e.message);
-      }
+    const tag = `${job.workOrderNum} ${job.orderName}`;
+    log(`Printing ${tag} — ${job.pieceCount} piece(s)`);
+    try {
+      await printZebra(job.zebraZpl);
+      log(`  ✓ ${job.orderName}: ${job.pieceCount} label(s)`);
+    } catch (e) {
+      log(`  ✗ ${job.orderName} labels failed:`, e.message);
     }
-    // Ack regardless so the bed doesn't reprint on every poll. Re-scan the
-    // work-order QR to reprint if something failed.
+    try {
+      await printTraveler(job.travelerUrl);
+      log(`  ✓ ${job.orderName}: traveler`);
+    } catch (e) {
+      log(`  ✗ ${job.orderName} traveler failed:`, e.message);
+    }
+    // Ack regardless so it doesn't reprint on every poll. Re-approve the order
+    // on the load screen to reprint if something failed.
     try {
       await fetch(queueUrl, {
         method: "POST",
@@ -131,11 +132,14 @@ async function tick() {
           Authorization: `Bearer ${cfg.token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ bedId: bed.bedId }),
+        body: JSON.stringify({
+          bedId: job.bedId,
+          shopifyOrderId: job.shopifyOrderId,
+        }),
       });
-      log(`  done ${bed.workOrderNum}`);
+      log(`  done ${tag}`);
     } catch (e) {
-      log(`  ack failed for ${bed.workOrderNum}:`, e.message);
+      log(`  ack failed for ${tag}:`, e.message);
     }
   }
 }

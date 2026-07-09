@@ -4,76 +4,62 @@ import { json } from "@remix-run/node";
 import { requestOrigin, requireBridgeToken } from "~/lib/bridge.server";
 import type { LabelPiece } from "~/lib/zpl.server";
 import { orderLabelsZpl } from "~/lib/zpl.server";
-import {
-  listBedsNeedingLabels,
-  markBedLabeled,
-} from "~/models/bed.server";
 import { getOrderScope } from "~/models/order.server";
+import { listOrderLabelJobs, markOrderLabeled } from "~/models/station.server";
 
 /**
- * Print bridge queue.
+ * Print bridge queue — now per ORDER, not per bed.
  *
- *   GET  /api/print-queue        -> beds waiting to be labelled, with the ZPL
- *                                   label batch + traveler URL per order.
- *   POST /api/print-queue        -> body { bedId } acks a bed as printed.
+ *   GET  /api/print-queue   -> orders the worker approved at the bed, each with
+ *                              its ZPL label batch + traveler URL.
+ *   POST /api/print-queue   -> body { bedId, shopifyOrderId } acks one order.
+ *
+ * Each order is queued independently when the worker clicks "Approve & print"
+ * on the guided load screen, and prints immediately.
  *
  * Auth: Authorization: Bearer <PRINT_BRIDGE_TOKEN> on both.
  */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   requireBridgeToken(request);
   const origin = requestOrigin(request);
-  const beds = await listBedsNeedingLabels();
+  const labelJobs = await listOrderLabelJobs();
 
-  // Cache order-level totals so we compute each order's scope only once.
-  const scopeCache = new Map<string, number>();
+  // Cache each order's whole-order total (for the MULTI banner) once.
+  const totalCache = new Map<string, number>();
   async function orderTotalFor(orderName: string): Promise<number> {
-    const cached = scopeCache.get(orderName);
+    const cached = totalCache.get(orderName);
     if (cached !== undefined) return cached;
     const scope = await getOrderScope(orderName);
-    scopeCache.set(orderName, scope.totalPieces);
+    totalCache.set(orderName, scope.totalPieces);
     return scope.totalPieces;
   }
 
-  const queue = await Promise.all(
-    beds.map(async (bed) => {
-      // Group this bed's pieces by order.
-      const byOrder = new Map<string, typeof bed.pieces>();
-      for (const piece of bed.pieces) {
-        const key = piece.job.shopifyOrderId;
-        const list = byOrder.get(key) ?? [];
-        list.push(piece);
-        byOrder.set(key, list);
-      }
-
-      const orders = await Promise.all(
-        [...byOrder.entries()].map(async ([shopifyOrderId, pieces]) => {
-          const orderName = pieces[0].job.orderName;
-          const orderTotal = await orderTotalFor(orderName);
-          const labelPieces: LabelPiece[] = pieces.map((p) => ({
-            qrCode: p.qrCode,
-            orderName: p.job.orderName,
-            size: p.job.size,
-            material: p.job.material,
-            pieceIndex: p.pieceIndex,
-            pieceCount: p.job.quantity,
-            orderTotal,
-          }));
-          return {
-            orderName,
-            shopifyOrderId,
-            pieceCount: pieces.length,
-            orderTotal,
-            zebraZpl: orderLabelsZpl(labelPieces, origin),
-            travelerUrl: `${origin}/station/traveler/${bed.id}?order=${encodeURIComponent(shopifyOrderId)}`,
-          };
-        }),
-      );
-
-      return { bedId: bed.id, workOrderNum: bed.workOrderNum, orders };
+  const jobs = await Promise.all(
+    labelJobs.map(async (j) => {
+      const orderTotal = await orderTotalFor(j.orderName);
+      const labelPieces: LabelPiece[] = j.pieces.map((p) => ({
+        qrCode: p.qrCode,
+        orderName: p.orderName,
+        size: p.size,
+        material: p.material,
+        pieceIndex: p.pieceIndex,
+        pieceCount: p.quantity,
+        orderTotal,
+      }));
+      return {
+        bedId: j.bedId,
+        workOrderNum: j.workOrderNum,
+        orderName: j.orderName,
+        shopifyOrderId: j.shopifyOrderId,
+        pieceCount: j.pieces.length,
+        orderTotal,
+        zebraZpl: orderLabelsZpl(labelPieces, origin),
+        travelerUrl: `${origin}/station/traveler/${j.bedId}?order=${encodeURIComponent(j.shopifyOrderId)}`,
+      };
     }),
   );
 
-  return json({ beds: queue });
+  return json({ jobs });
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -83,15 +69,24 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   let bedId: string | undefined;
+  let shopifyOrderId: string | undefined;
   const contentType = request.headers.get("Content-Type") ?? "";
   if (contentType.includes("application/json")) {
-    const body = (await request.json()) as { bedId?: string };
+    const body = (await request.json()) as {
+      bedId?: string;
+      shopifyOrderId?: string;
+    };
     bedId = body.bedId;
+    shopifyOrderId = body.shopifyOrderId;
   } else {
-    bedId = String((await request.formData()).get("bedId") ?? "");
+    const form = await request.formData();
+    bedId = String(form.get("bedId") ?? "");
+    shopifyOrderId = String(form.get("shopifyOrderId") ?? "");
   }
-  if (!bedId) return json({ error: "bedId required" }, { status: 400 });
+  if (!bedId || !shopifyOrderId) {
+    return json({ error: "bedId and shopifyOrderId required" }, { status: 400 });
+  }
 
-  await markBedLabeled(bedId);
+  await markOrderLabeled(bedId, shopifyOrderId);
   return json({ ok: true });
 };

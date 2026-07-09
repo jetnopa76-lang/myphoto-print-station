@@ -68,7 +68,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   doc
     .fontSize(13)
     .fillColor("#000000")
-    .text("Scan to print piece labels + traveler", { align: "center" });
+    .text("Scan to load this bed & print each order", { align: "center" });
   doc
     .fontSize(9)
     .fillColor("#999999")
