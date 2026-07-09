@@ -97,12 +97,23 @@ async function tick() {
 
   for (const bed of data.beds || []) {
     log(`Printing ${bed.workOrderNum} — ${bed.orders.length} order(s)`);
-    try {
-      for (const order of bed.orders) {
+    for (const order of bed.orders) {
+      try {
         await printZebra(order.zebraZpl);
-        await printTraveler(order.travelerUrl);
-        log(`  ✓ ${order.orderName}: ${order.pieceCount} label(s) + traveler`);
+        log(`  ✓ ${order.orderName}: ${order.pieceCount} label(s)`);
+      } catch (e) {
+        log(`  ✗ ${order.orderName} labels failed:`, e.message);
       }
+      try {
+        await printTraveler(order.travelerUrl);
+        log(`  ✓ ${order.orderName}: traveler`);
+      } catch (e) {
+        log(`  ✗ ${order.orderName} traveler failed:`, e.message);
+      }
+    }
+    // Ack regardless so the bed doesn't reprint on every poll. Re-scan the
+    // work-order QR to reprint if something failed.
+    try {
       await fetch(queueUrl, {
         method: "POST",
         headers: {
@@ -113,7 +124,7 @@ async function tick() {
       });
       log(`  done ${bed.workOrderNum}`);
     } catch (e) {
-      log(`  ✗ ${bed.workOrderNum} failed:`, e.message, "(will retry next poll)");
+      log(`  ack failed for ${bed.workOrderNum}:`, e.message);
     }
   }
 }
