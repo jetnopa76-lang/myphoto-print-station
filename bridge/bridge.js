@@ -30,6 +30,11 @@ function log(...a) {
   console.log(new Date().toLocaleTimeString(), ...a);
 }
 
+// Safety net: never reprint the same bed within this window, even if the
+// "mark done" call fails. Prevents runaway printing.
+const REPRINT_COOLDOWN_MS = 60000;
+const recentlyPrinted = new Map();
+
 function run(cmd, args) {
   return new Promise((resolve, reject) => {
     execFile(cmd, args, { windowsHide: true }, (err, stdout, stderr) => {
@@ -96,6 +101,12 @@ async function tick() {
   }
 
   for (const bed of data.beds || []) {
+    const printedAt = recentlyPrinted.get(bed.bedId);
+    if (printedAt && Date.now() - printedAt < REPRINT_COOLDOWN_MS) {
+      continue; // already printed this bed moments ago — skip to avoid runaway
+    }
+    recentlyPrinted.set(bed.bedId, Date.now());
+
     log(`Printing ${bed.workOrderNum} — ${bed.orders.length} order(s)`);
     for (const order of bed.orders) {
       try {
